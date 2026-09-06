@@ -1,7 +1,10 @@
 package com.diaar.notes
 
-import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -10,36 +13,42 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.text.method.LinkMovementMethod
 import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewTreeObserver
 import android.widget.EditText
 import android.widget.ImageButton
-import android.widget.RadioButton
-import android.widget.RadioGroup
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.documentfile.provider.DocumentFile
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private enum class PendingFolderAction { NONE, SET_ONLY, CREATE_NEW_AFTER }
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var prefs: Prefs
+    private lateinit var root: View
     private lateinit var editor: EditText
     private lateinit var preview: TextView
-    private lateinit var fabMode: ImageButton
     private lateinit var toolbarRecycler: RecyclerView
     private lateinit var adapter: ToolbarAdapter
 
-    private var isPreviewMode = false
     private var suppressWatcher = false
     private var pendingFolderAction = PendingFolderAction.NONE
+    private var keyboardVisible = false
+
+    private val ink = 0xFFDFCBC9.toInt()
+    private val accent = 0xFF072331.toInt()
 
     private val autosaveHandler = Handler(Looper.getMainLooper())
     private val autosaveRunnable = Runnable { writeCurrentFile() }
 
-    // --- simple snapshot-based undo (coalesced so it doesn't push on every keystroke) ---
     private val undoStack = ArrayDeque<String>()
     private var lastUndoPushAt = 0L
     private var lastSnapshot = ""
@@ -47,11 +56,10 @@ class MainActivity : AppCompatActivity() {
     private val openTreeLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             )
             prefs.targetFolderUri = uri
-            if (pendingFolderAction == PendingFolderAction.CREATE_NEW_AFTER) promptNewNoteName()
+            if (pendingFolderAction == PendingFolderAction.CREATE_NEW_AFTER) createNewNote(defaultNoteName())
         }
         pendingFolderAction = PendingFolderAction.NONE
     }
@@ -60,8 +68,7 @@ class MainActivity : AppCompatActivity() {
         if (uri != null) {
             try {
                 contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 )
             } catch (_: SecurityException) { /* some providers won't persist; still usable this session */ }
             openFileIntoEditor(uri)
@@ -73,36 +80,83 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         prefs = Prefs(this)
+        root = findViewById(R.id.root)
         editor = findViewById(R.id.editor)
         preview = findViewById(R.id.preview)
-        fabMode = findViewById(R.id.fabMode)
         toolbarRecycler = findViewById(R.id.toolbar)
 
         setupToolbar()
         setupEditor()
-        fabMode.setOnClickListener { toggleMode() }
+        setupKeyboardVisibilityTracking()
+
+        preview.setOnClickListener {
+            editor.visibility = View.VISIBLE
+            preview.visibility = View.GONE
+            editor.requestFocus()
+            showKeyboardOn(editor)
+        }
 
         prefs.currentFileUri?.let { uri ->
-            try {
-                openFileIntoEditor(uri)
-            } catch (_: Exception) {
-                prefs.currentFileUri = null
-            }
+            try { openFileIntoEditor(uri) } catch (_: Exception) { prefs.currentFileUri = null }
         }
+        renderPreview()
+        editor.visibility = View.GONE
+        preview.visibility = View.VISIBLE
+    }
+
+    // ---------------------------------------------------------------- keyboard-driven mode
+
+    private fun setupKeyboardVisibilityTracking() {
+        root.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                val r = Rect()
+                root.getWindowVisibleDisplayFrame(r)
+                val screenHeight = root.rootView.height
+                val keypadHeight = screenHeight - r.bottom
+                val isVisible = keypadHeight > screenHeight * 0.15
+
+                if (isVisible != keyboardVisible) {
+                    keyboardVisible = isVisible
+                    onKeyboardVisibilityChanged(isVisible, keypadHeight)
+                }
+            }
+        })
+    }
+
+    private fun onKeyboardVisibilityChanged(visible: Boolean, keypadHeightPx: Int) {
+        if (visible) {
+            editor.visibility = View.VISIBLE
+            preview.visibility = View.GONE
+            toolbarRecycler.visibility = View.VISIBLE
+            val lp = toolbarRecycler.layoutParams as android.widget.FrameLayout.LayoutParams
+            val margin = (12 * resources.displayMetrics.density).toInt()
+            lp.bottomMargin = keypadHeightPx + margin
+            toolbarRecycler.layoutParams = lp
+        } else {
+            renderPreview()
+            editor.visibility = View.GONE
+            preview.visibility = View.VISIBLE
+            toolbarRecycler.visibility = View.GONE
+        }
+    }
+
+    private fun showKeyboardOn(view: View) {
+        view.requestFocus()
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        imm.showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
     }
 
     // ---------------------------------------------------------------- toolbar
 
     private fun defaultOrder() = listOf(
-        ToolbarButton.UNDO, ToolbarButton.BOLD, ToolbarButton.ITALIC,
-        ToolbarButton.CHECKBOX, ToolbarButton.DATETIME, ToolbarButton.LOAD, ToolbarButton.NEW
+        ToolbarButton.UNDO, ToolbarButton.NEW, ToolbarButton.LOAD, ToolbarButton.CHECKBOX,
+        ToolbarButton.DATETIME, ToolbarButton.ITALIC, ToolbarButton.BOLD, ToolbarButton.CODEBLOCK
     )
 
     private fun restoreOrder(): List<ToolbarButton> {
         val saved = prefs.toolbarOrder ?: return defaultOrder()
         val byName = ToolbarButton.entries.associateBy { it.name }
         val restored = saved.mapNotNull { byName[it] }.toMutableList()
-        // If a future update adds new buttons, make sure they still show up.
         for (b in defaultOrder()) if (b !in restored) restored.add(b)
         return restored
     }
@@ -115,7 +169,7 @@ class MainActivity : AppCompatActivity() {
                 pendingFolderAction = PendingFolderAction.SET_ONLY
                 openTreeLauncher.launch(prefs.targetFolderUri)
             },
-            onSwipeUpDateTime = { showDateFormatPicker() },
+            onSwipeUp = { button, view -> onToolbarSwipeUp(button, view) },
             onOrderChanged = { prefs.toolbarOrder = it.map { b -> b.name } }
         )
         toolbarRecycler.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
@@ -130,14 +184,94 @@ class MainActivity : AppCompatActivity() {
             ToolbarButton.ITALIC -> wrapSelectionOrInsert("*")
             ToolbarButton.CHECKBOX -> insertCheckboxAtLineStart()
             ToolbarButton.DATETIME -> insertTimestamp()
-            ToolbarButton.LOAD -> openLoadDialog()
+            ToolbarButton.CODEBLOCK -> insertCodeBlock()
+            ToolbarButton.LOAD -> openDocumentLauncher.launch(arrayOf("text/markdown", "text/plain", "text/*"))
             ToolbarButton.NEW -> {
                 if (prefs.targetFolderUri == null) {
                     pendingFolderAction = PendingFolderAction.CREATE_NEW_AFTER
                     openTreeLauncher.launch(null)
                 } else {
-                    promptNewNoteName()
+                    createNewNote(defaultNoteName())
                 }
+            }
+        }
+    }
+
+    private fun onToolbarSwipeUp(button: ToolbarButton, anchor: View) {
+        when (button) {
+            ToolbarButton.NEW -> showNewNamePopup(anchor)
+            ToolbarButton.LOAD -> showLoadListPopup(anchor)
+            ToolbarButton.DATETIME -> showDateFormatPopup(anchor)
+            else -> {}
+        }
+    }
+
+    // ---------------------------------------------------------------- anchored popups
+
+    private fun showNewNamePopup(anchor: View) {
+        val view = LayoutInflater.from(this).inflate(R.layout.popup_new_name, null)
+        val input = view.findViewById<EditText>(R.id.nameInput)
+        val confirm = view.findViewById<ImageButton>(R.id.confirmBtn)
+        input.setText(defaultNoteName())
+        input.setSelection(input.text.length)
+
+        val popup = AnchoredPopup.showAbove(this, anchor, view)
+        val create = {
+            val raw = input.text.toString().trim()
+            popup.dismiss()
+            if (prefs.targetFolderUri == null) {
+                pendingFolderAction = PendingFolderAction.CREATE_NEW_AFTER
+                openTreeLauncher.launch(null)
+            } else {
+                createNewNote(if (raw.isEmpty()) defaultNoteName() else raw)
+            }
+        }
+        confirm.setOnClickListener { create() }
+        input.setOnEditorActionListener { _, _, _ -> create(); true }
+    }
+
+    private fun showLoadListPopup(anchor: View) {
+        val view = LayoutInflater.from(this).inflate(R.layout.popup_note_list, null)
+        val fileList = view.findViewById<RecyclerView>(R.id.fileList)
+        val emptyLabel = view.findViewById<TextView>(R.id.emptyLabel)
+
+        val folderUri = prefs.targetFolderUri
+        val files: List<Pair<String, Uri>> = if (folderUri != null) {
+            DocumentFile.fromTreeUri(this, folderUri)
+                ?.listFiles()
+                ?.filter { it.isFile && it.name?.endsWith(".md", ignoreCase = true) == true }
+                ?.sortedByDescending { it.lastModified() }
+                ?.map { (it.name ?: "untitled.md") to it.uri }
+                ?: emptyList()
+        } else emptyList()
+
+        val popup = AnchoredPopup.showAbove(this, anchor, view)
+
+        if (files.isEmpty()) {
+            fileList.visibility = View.GONE
+            emptyLabel.visibility = View.VISIBLE
+            emptyLabel.text = if (folderUri == null) getString(R.string.no_folder_set) else getString(R.string.no_notes_here)
+        } else {
+            fileList.layoutManager = LinearLayoutManager(this)
+            fileList.adapter = NoteListAdapter(files) { uri ->
+                popup.dismiss()
+                openFileIntoEditor(uri)
+            }
+        }
+    }
+
+    private fun showDateFormatPopup(anchor: View) {
+        val view = LayoutInflater.from(this).inflate(R.layout.popup_date_format, null)
+        val popup = AnchoredPopup.showAbove(this, anchor, view)
+        val rows = mapOf(
+            R.id.opt24h to DateStyle.CLOCK_24H,
+            R.id.optDateTime to DateStyle.DATE_TIME,
+            R.id.optShort to DateStyle.SHORT_DATE_TIME
+        )
+        for ((id, style) in rows) {
+            view.findViewById<TextView>(id).setOnClickListener {
+                prefs.dateFormatStyle = style
+                popup.dismiss()
             }
         }
     }
@@ -145,7 +279,7 @@ class MainActivity : AppCompatActivity() {
     // ---------------------------------------------------------------- editor + autosave
 
     private fun setupEditor() {
-        if (isPreviewMode) return
+        editor.addTextChangedListener(LiveMarkdownWatcher(ink, accent, editor.textSize * 0.85f, editor.textSize * 0.8f))
         editor.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -171,9 +305,8 @@ class MainActivity : AppCompatActivity() {
         if (undoStack.isEmpty()) return
         val previous = undoStack.removeLast()
         suppressWatcher = true
-        val cursor = previous.length
         editor.setText(previous)
-        editor.setSelection(cursor.coerceIn(0, previous.length))
+        editor.setSelection(previous.length.coerceIn(0, previous.length))
         suppressWatcher = false
         lastSnapshot = previous
         scheduleAutosave()
@@ -202,6 +335,13 @@ class MainActivity : AppCompatActivity() {
         editor.text.insert(lineStart, "- [ ] ")
     }
 
+    private fun insertCodeBlock() {
+        val cursor = editor.selectionStart.coerceAtLeast(0)
+        val insert = "```\n\n```"
+        editor.text.insert(cursor, insert)
+        editor.setSelection(cursor + 4) // land inside the fences, on the blank line
+    }
+
     private fun insertTimestamp() = insertAtCursor(TimestampFormat.format(prefs.dateFormatStyle))
 
     private fun insertAtCursor(text: String) {
@@ -209,40 +349,13 @@ class MainActivity : AppCompatActivity() {
         editor.text.insert(cursor, text)
     }
 
-    private fun showDateFormatPicker() {
-        val group = RadioGroup(this)
-        group.orientation = RadioGroup.VERTICAL
-        val pad = (16 * resources.displayMetrics.density).toInt()
-        group.setPadding(pad, pad, pad, pad)
-
-        val options = listOf(
-            DateStyle.CLOCK_24H to getString(R.string.format_24h),
-            DateStyle.DATE_TIME to getString(R.string.format_date_time),
-            DateStyle.SHORT_DATE_TIME to getString(R.string.format_short)
-        )
-        val buttons = options.map { (style, label) ->
-            RadioButton(this).apply {
-                text = label
-                setTextColor(0xFFDFCBC9.toInt())
-                isChecked = style == prefs.dateFormatStyle
-                tag = style
-            }
-        }
-        buttons.forEach { group.addView(it) }
-
-        val dialog = AlertDialog.Builder(this)
-            .setTitle("Timestamp format")
-            .setView(group)
-            .setNegativeButton(R.string.cancel, null)
-            .create()
-
-        buttons.forEach { rb ->
-            rb.setOnClickListener {
-                prefs.dateFormatStyle = rb.tag as Int
-                dialog.dismiss()
-            }
-        }
-        dialog.show()
+    private fun defaultNoteName(): String {
+        val now = Date()
+        val day = SimpleDateFormat("dd", Locale.ENGLISH).format(now)
+        val month = SimpleDateFormat("MMM", Locale.ENGLISH).format(now).lowercase(Locale.ENGLISH)
+        val year = SimpleDateFormat("yyyy", Locale.ENGLISH).format(now)
+        val time = SimpleDateFormat("HHmm", Locale.ENGLISH).format(now)
+        return "$day-$month-$year-$time"
     }
 
     private fun scheduleAutosave() {
@@ -256,10 +369,7 @@ class MainActivity : AppCompatActivity() {
             contentResolver.openOutputStream(uri, "wt")?.use {
                 it.write(editor.text.toString().toByteArray(Charsets.UTF_8))
             }
-        } catch (_: Exception) {
-            // File may have become inaccessible (deleted/moved outside the app) — fail silently,
-            // the user's text is still safely in the editor and will save once access returns.
-        }
+        } catch (_: Exception) { /* fails silently; text remains safe in the editor */ }
     }
 
     // ---------------------------------------------------------------- open / create
@@ -273,27 +383,7 @@ class MainActivity : AppCompatActivity() {
         lastSnapshot = text
         undoStack.clear()
         prefs.currentFileUri = uri
-        if (isPreviewMode) renderPreview()
-    }
-
-    private fun promptNewNoteName() {
-        val input = EditText(this)
-        input.hint = getString(R.string.new_note_hint)
-        input.setTextColor(0xFFDFCBC9.toInt())
-        input.setHintTextColor(0x88DFCBC9.toInt())
-        val pad = (20 * resources.displayMetrics.density).toInt()
-        input.setPadding(pad, pad, pad, pad)
-
-        AlertDialog.Builder(this)
-            .setTitle(R.string.new_note_title)
-            .setView(input)
-            .setPositiveButton(R.string.create) { _, _ ->
-                val raw = input.text.toString().trim()
-                val name = if (raw.isEmpty()) "Untitled" else raw
-                createNewNote(name)
-            }
-            .setNegativeButton(R.string.cancel, null)
-            .show()
+        if (!keyboardVisible) renderPreview()
     }
 
     private fun createNewNote(name: String) {
@@ -308,73 +398,13 @@ class MainActivity : AppCompatActivity() {
         lastSnapshot = ""
         undoStack.clear()
         prefs.currentFileUri = newFile.uri
-        if (isPreviewMode) renderPreview()
+        editor.requestFocus()
+        showKeyboardOn(editor)
     }
 
-    // ---------------------------------------------------------------- load dialog
-
-    private fun openLoadDialog() {
-        val view = LayoutInflater.from(this).inflate(R.layout.dialog_open_note, null)
-        val browseRow = view.findViewById<TextView>(R.id.browseRow)
-        val fileList = view.findViewById<RecyclerView>(R.id.fileList)
-        val emptyLabel = view.findViewById<TextView>(R.id.emptyLabel)
-
-        val dialog = AlertDialog.Builder(this)
-            .setTitle(R.string.dialog_open_title)
-            .setView(view)
-            .setNegativeButton(R.string.cancel, null)
-            .create()
-
-        browseRow.setOnClickListener {
-            dialog.dismiss()
-            openDocumentLauncher.launch(arrayOf("text/markdown", "text/plain", "text/*"))
-        }
-
-        val folderUri = prefs.targetFolderUri
-        val files: List<Pair<String, Uri>> = if (folderUri != null) {
-            DocumentFile.fromTreeUri(this, folderUri)
-                ?.listFiles()
-                ?.filter { it.isFile && it.name?.endsWith(".md", ignoreCase = true) == true }
-                ?.sortedByDescending { it.lastModified() }
-                ?.map { (it.name ?: "untitled.md") to it.uri }
-                ?: emptyList()
-        } else emptyList()
-
-        if (files.isEmpty()) {
-            fileList.visibility = android.view.View.GONE
-            emptyLabel.visibility = android.view.View.VISIBLE
-            emptyLabel.text = if (folderUri == null) getString(R.string.no_folder_set) else getString(R.string.no_notes_here)
-        } else {
-            fileList.layoutManager = LinearLayoutManager(this)
-            fileList.adapter = NoteListAdapter(files) { uri ->
-                dialog.dismiss()
-                openFileIntoEditor(uri)
-            }
-        }
-
-        dialog.show()
-    }
-
-    // ---------------------------------------------------------------- read/write mode
-
-    private fun toggleMode() {
-        isPreviewMode = !isPreviewMode
-        if (isPreviewMode) {
-            renderPreview()
-            editor.visibility = android.view.View.GONE
-            preview.visibility = android.view.View.VISIBLE
-            fabMode.setImageResource(R.drawable.ic_pencil)
-        } else {
-            preview.visibility = android.view.View.GONE
-            editor.visibility = android.view.View.VISIBLE
-            fabMode.setImageResource(R.drawable.ic_eye)
-            editor.requestFocus()
-        }
-    }
+    // ---------------------------------------------------------------- read mode render
 
     private fun renderPreview() {
-        val ink = 0xFFDFCBC9.toInt()
-        val accent = 0xFF072331.toInt()
         val bodySize = editor.textSize
         preview.text = MarkdownRenderer.render(
             raw = editor.text.toString(),
@@ -382,9 +412,17 @@ class MainActivity : AppCompatActivity() {
             accentColor = accent,
             bodyTextSizePx = bodySize,
             chipTextSizePx = bodySize * 0.8f,
-            checkboxSizePx = bodySize * 0.85f
-        ) { rawLineStart -> toggleCheckboxAndSave(rawLineStart) }
+            checkboxSizePx = bodySize * 0.85f,
+            onToggleCheckbox = { rawLineStart -> toggleCheckboxAndSave(rawLineStart) },
+            onCopyCodeBlock = { code -> copyToClipboard(code) }
+        )
         preview.movementMethod = LinkMovementMethod.getInstance()
+    }
+
+    private fun copyToClipboard(text: String) {
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("code", text))
+        Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show()
     }
 
     private fun toggleCheckboxAndSave(rawLineStart: Int) {
@@ -400,6 +438,6 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         autosaveHandler.removeCallbacks(autosaveRunnable)
-        writeCurrentFile() // make sure nothing is lost if the user backgrounds mid-debounce
+        writeCurrentFile()
     }
 }

@@ -9,21 +9,22 @@ import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import kotlin.math.abs
 
-enum class ToolbarButton(val iconRes: Int, val draggable: Boolean = true) {
+enum class ToolbarButton(val iconRes: Int, val draggable: Boolean = true, val swipeUp: Boolean = false) {
     UNDO(R.drawable.ic_undo),
-    BOLD(R.drawable.ic_bold),
-    ITALIC(R.drawable.ic_italic),
+    NEW(R.drawable.ic_new, draggable = false, swipeUp = true),
+    LOAD(R.drawable.ic_send, swipeUp = true),
     CHECKBOX(R.drawable.ic_checkbox),
-    DATETIME(R.drawable.ic_datetime),
-    LOAD(R.drawable.ic_load),
-    NEW(R.drawable.ic_new, draggable = false)
+    DATETIME(R.drawable.ic_datetime, swipeUp = true),
+    ITALIC(R.drawable.ic_italic),
+    BOLD(R.drawable.ic_bold),
+    CODEBLOCK(R.drawable.ic_codeblock)
 }
 
 class ToolbarAdapter(
     initialOrder: List<ToolbarButton>,
     private val onClick: (ToolbarButton) -> Unit,
     private val onLongPressNew: () -> Unit,
-    private val onSwipeUpDateTime: () -> Unit,
+    private val onSwipeUp: (ToolbarButton, android.view.View) -> Unit,
     private val onOrderChanged: (List<ToolbarButton>) -> Unit
 ) : RecyclerView.Adapter<ToolbarAdapter.ViewHolder>() {
 
@@ -46,13 +47,12 @@ class ToolbarAdapter(
         val button = items[position]
         holder.icon.setImageResource(button.iconRes)
 
-        var downY = 0f
         val gestureDetector = GestureDetector(holder.itemView.context, object : GestureDetector.SimpleOnGestureListener() {
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
-                if (button == ToolbarButton.DATETIME && e1 != null) {
+                if (button.swipeUp && e1 != null) {
                     val dy = e2.y - e1.y
                     if (dy < -40 && abs(velocityY) > abs(velocityX)) {
-                        onSwipeUpDateTime()
+                        onSwipeUp(button, holder.itemView)
                         return true
                     }
                 }
@@ -93,14 +93,14 @@ class ToolbarAdapter(
             val from = viewHolder.bindingAdapterPosition
             val to = target.bindingAdapterPosition
             if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false
-            if (!items[to].draggable) return false // never let a drag land on/displace New
+            if (!items[to].draggable) return false
             val moved = items.removeAt(from)
             items.add(to, moved)
             notifyItemMoved(from, to)
             return true
         }
 
-        override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) { /* swipe disabled */ }
+        override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {}
 
         override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
             super.clearView(recyclerView, viewHolder)

@@ -18,7 +18,7 @@ class NoteListAdapter(
             android.R.layout.simple_list_item_1, parent, false
         ) as TextView
         tv.setTextColor(0xFFDFCBC9.toInt())
-        tv.setBackgroundResource(R.drawable.ripple_toolbar_item)
+        tv.setBackgroundResource(R.drawable.bg_menu_item)
         tv.setPadding(28, 28, 28, 28)
         return VH(tv)
     }

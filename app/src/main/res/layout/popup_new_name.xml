@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="260dp"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="@drawable/bg_menu_card"
+    android:padding="8dp">
+
+    <EditText
+        android:id="@+id/nameInput"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:background="@drawable/bg_pill_field"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:textColor="@color/ink"
+        android:textColorHint="@color/ink_dim"
+        android:textSize="14sp"
+        android:hint="@string/new_note_hint"
+        android:singleLine="true"
+        android:imeOptions="actionDone" />
+
+    <ImageButton
+        android:id="@+id/confirmBtn"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:layout_marginStart="6dp"
+        android:background="@drawable/bg_menu_item"
+        android:src="@drawable/ic_confirm"
+        android:padding="8dp"
+        android:scaleType="fitCenter" />
+</LinearLayout>

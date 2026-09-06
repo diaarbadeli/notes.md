@@ -2,15 +2,11 @@
 <resources>
     <string name="app_name">notes</string>
     <string name="hint_empty">Start writing…</string>
-    <string name="dialog_open_title">Open note</string>
     <string name="browse_files">Browse files…</string>
-    <string name="no_folder_set">No folder set yet — tap Browse, or long-press New to choose one.</string>
+    <string name="no_folder_set">No folder set — long-press New to choose one.</string>
     <string name="no_notes_here">No .md files in this folder yet.</string>
-    <string name="new_note_title">New note</string>
-    <string name="new_note_hint">Untitled</string>
-    <string name="create">Create</string>
-    <string name="cancel">Cancel</string>
-    <string name="format_24h">24h clock — 14:32</string>
+    <string name="new_note_hint">Note name</string>
+    <string name="format_24h">24h — 14:32</string>
     <string name="format_date_time">Date + time — 6 Sep 2026 14:32</string>
-    <string name="format_short">Short date + time — 6 Sep 14:32</string>
+    <string name="format_short">Short — 6 Sep 14:32</string>
 </resources>

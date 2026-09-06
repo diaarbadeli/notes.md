@@ -1,68 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg">
+    android:background="@color/bg"
+    android:fitsSystemWindows="false">
 
-    <LinearLayout
+    <EditText
+        android:id="@+id/editor"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="vertical">
+        android:background="@android:color/transparent"
+        android:textColor="@color/ink"
+        android:textColorHint="@color/ink_dim"
+        android:textCursorDrawable="@null"
+        android:gravity="top|start"
+        android:padding="20dp"
+        android:inputType="textMultiLine|textCapSentences"
+        android:hint="@string/hint_empty" />
 
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/toolbar"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:background="@color/bg"
-            android:clipToPadding="false"
-            android:paddingStart="4dp"
-            android:paddingEnd="4dp" />
+    <TextView
+        android:id="@+id/preview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/transparent"
+        android:textColor="@color/ink"
+        android:padding="20dp"
+        android:visibility="gone"
+        android:focusable="true"
+        android:focusableInTouchMode="true" />
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="#1E1E1E" />
-
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1">
-
-            <EditText
-                android:id="@+id/editor"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="@android:color/transparent"
-                android:textColor="@color/ink"
-                android:textColorHint="@color/ink_dim"
-                android:textCursorDrawable="@null"
-                android:gravity="top|start"
-                android:padding="16dp"
-                android:inputType="textMultiLine|textCapSentences"
-                android:hint="@string/hint_empty" />
-
-            <TextView
-                android:id="@+id/preview"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="@android:color/transparent"
-                android:textColor="@color/ink"
-                android:padding="16dp"
-                android:visibility="gone" />
-        </FrameLayout>
-    </LinearLayout>
-
-    <ImageButton
-        android:id="@+id/fabMode"
-        android:layout_width="36dp"
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/toolbar"
+        android:layout_width="wrap_content"
         android:layout_height="36dp"
-        android:layout_gravity="bottom|end"
-        android:layout_margin="16dp"
-        android:background="@drawable/bg_fab"
-        android:src="@drawable/ic_eye"
-        android:padding="8dp"
-        android:contentDescription="@string/app_name"
-        android:scaleType="fitCenter"
-        android:elevation="4dp" />
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="12dp"
+        android:background="@drawable/bg_toolbar_pill"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:clipToPadding="false"
+        android:elevation="6dp"
+        android:visibility="gone" />
 
 </FrameLayout>

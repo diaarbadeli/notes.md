@@ -3,20 +3,30 @@ package com.diaar.notes
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ClickableSpan
+import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
+import android.text.style.TypefaceSpan
 import android.view.View
 import android.graphics.Typeface
+import androidx.core.graphics.ColorUtils
 
 /**
- * Turns the raw markdown buffer into a Spannable for read mode.
- * Supports exactly what this app itself produces: **bold**, *italic*,
- * "- [ ] " / "- [x] " checkboxes, and the app's own timestamp shapes.
- * Nothing else (no headers/links/lists/code) — kept deliberately tiny.
+ * Turns the raw markdown buffer into a Spannable for read mode (shown whenever the
+ * keyboard is closed). Supports exactly what this app itself produces: **bold**,
+ * *italic*, "- [ ] " / "- [x] " checkboxes, plain "- " bullets, a lone "---" divider,
+ * #tags, fenced ``` code blocks (tap to copy), and the app's own timestamp shapes.
+ * Nothing else — kept deliberately tiny.
  */
 object MarkdownRenderer {
 
-    private val CHECKBOX_LINE = Regex("""^(\s*)-\s?\[( |x|X)\]\s?(.*)$""")
-    private const val CHECKBOX_PLACEHOLDER = '\u00A0' // non-breaking space, drawn over by CheckboxSpan
+    val CHECKBOX_LINE = Regex("""^(\s*)-\s?\[( |x|X)\]\s?(.*)$""")
+    val BULLET_LINE = Regex("""^(\s*)-\s+(.*)$""")
+    val HR_LINE = Regex("""^-{3,}$""")
+    val TAG_REGEX = Regex("""(?<![\w#])#\w[\w-]*""")
+    private val CODE_FENCE_REGEX = Regex("""```[^\n]*\n([\s\S]*?)```""")
+    private const val CHECKBOX_PLACEHOLDER = '\u00A0'
+    private const val BG_COLOR = 0xFF111111.toInt()
+    private const val CODE_BG = 0xFF1A1A1A.toInt()
 
     fun render(
         raw: String,
@@ -25,52 +35,109 @@ object MarkdownRenderer {
         bodyTextSizePx: Float,
         chipTextSizePx: Float,
         checkboxSizePx: Float,
-        onToggleCheckbox: (rawLineStart: Int) -> Unit
+        onToggleCheckbox: (rawLineStart: Int) -> Unit,
+        onCopyCodeBlock: (String) -> Unit = {}
     ): SpannableStringBuilder {
         val out = SpannableStringBuilder()
-        var rawIndex = 0
-        val lines = raw.split("\n")
+        var lastEnd = 0
 
-        lines.forEachIndexed { i, line ->
-            val lineStartInRaw = rawIndex
-            val match = CHECKBOX_LINE.matchEntire(line)
-
-            if (match != null) {
-                val indent = match.groupValues[1]
-                val checked = match.groupValues[2].equals("x", ignoreCase = true)
-                val rest = match.groupValues[3]
-
-                out.append(indent)
-                val placeholderStart = out.length
-                out.append(CHECKBOX_PLACEHOLDER)
-                val placeholderEnd = out.length
-                out.setSpan(
-                    CheckboxSpan(checked, inkColor, accentColor, checkboxSizePx),
-                    placeholderStart, placeholderEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-                out.setSpan(object : ClickableSpan() {
-                    override fun onClick(widget: View) = onToggleCheckbox(lineStartInRaw)
-                    override fun updateDrawState(ds: android.text.TextPaint) { /* no underline/color change */ }
-                }, placeholderStart, placeholderEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                out.append(" ")
-                appendStyledText(out, rest, inkColor, accentColor, chipTextSizePx)
-            } else {
-                appendStyledText(out, line, inkColor, accentColor, chipTextSizePx)
-            }
-
-            if (i != lines.lastIndex) out.append("\n")
-            rawIndex += line.length + 1 // +1 for the newline consumed between lines
+        for (m in CODE_FENCE_REGEX.findAll(raw)) {
+            renderLines(raw.substring(lastEnd, m.range.first), lastEnd, inkColor, accentColor, chipTextSizePx, checkboxSizePx, out, onToggleCheckbox)
+            if (out.isNotEmpty() && out.last() != '\n') out.append("\n")
+            renderCodeBlock(m.groupValues[1], inkColor, out, onCopyCodeBlock)
+            lastEnd = m.range.last + 1
         }
+        renderLines(raw.substring(lastEnd), lastEnd, inkColor, accentColor, chipTextSizePx, checkboxSizePx, out, onToggleCheckbox)
 
         return out
     }
 
-    /** Parses **bold** / *italic* out of [lineText], applies chip spans to timestamps, appends to [out]. */
+    private fun renderCodeBlock(code: String, inkColor: Int, out: SpannableStringBuilder, onCopy: (String) -> Unit) {
+        val trimmed = code.removeSuffix("\n")
+        val start = out.length
+        out.append(trimmed)
+        val end = out.length
+        if (end > start) {
+            out.setSpan(TypefaceSpan("monospace"), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            out.setSpan(CodeBlockSpan(CODE_BG), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            out.setSpan(object : ClickableSpan() {
+                override fun onClick(widget: View) = onCopy(trimmed)
+                override fun updateDrawState(ds: android.text.TextPaint) { ds.color = inkColor }
+            }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        out.append("\n")
+    }
+
+    private fun renderLines(
+        raw: String, baseOffset: Int, inkColor: Int, accentColor: Int, chipTextSizePx: Float, checkboxSizePx: Float,
+        out: SpannableStringBuilder, onToggleCheckbox: (Int) -> Unit
+    ) {
+        var rawIndex = 0
+        val lines = raw.split("\n")
+
+        lines.forEachIndexed { i, line ->
+            val lineStartInRaw = baseOffset + rawIndex
+
+            when {
+                HR_LINE.matches(line.trim()) -> {
+                    val start = out.length
+                    out.append(line)
+                    out.setSpan(ForegroundColorSpan(BG_COLOR), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    out.setSpan(HrSpan(0xFF2A2A2A.toInt()), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+
+                CHECKBOX_LINE.matchEntire(line) != null -> {
+                    val match = CHECKBOX_LINE.matchEntire(line)!!
+                    val indent = match.groupValues[1]
+                    val checked = match.groupValues[2].equals("x", ignoreCase = true)
+                    val rest = match.groupValues[3]
+
+                    out.append(indent)
+                    val placeholderStart = out.length
+                    out.append(CHECKBOX_PLACEHOLDER)
+                    out.setSpan(
+                        CheckboxSpan(checked, inkColor, accentColor, checkboxSizePx),
+                        placeholderStart, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                    out.setSpan(object : ClickableSpan() {
+                        override fun onClick(widget: View) = onToggleCheckbox(lineStartInRaw)
+                        override fun updateDrawState(ds: android.text.TextPaint) {}
+                    }, placeholderStart, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    out.append(" ")
+                    val restStart = out.length
+                    appendStyledText(out, rest, inkColor, accentColor, chipTextSizePx)
+                    if (checked) {
+                        out.setSpan(
+                            ForegroundColorSpan(ColorUtils.setAlphaComponent(inkColor, 204)),
+                            restStart, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                        )
+                    }
+                }
+
+                BULLET_LINE.matchEntire(line) != null -> {
+                    val match = BULLET_LINE.matchEntire(line)!!
+                    val indent = match.groupValues[1]
+                    val rest = match.groupValues[2]
+                    out.append(indent)
+                    val bulletStart = out.length
+                    out.append("- ")
+                    out.setSpan(BulletGlyphSpan(accentColor), bulletStart, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    appendStyledText(out, rest, inkColor, accentColor, chipTextSizePx)
+                }
+
+                else -> appendStyledText(out, line, inkColor, accentColor, chipTextSizePx)
+            }
+
+            if (i != lines.lastIndex) out.append("\n")
+            rawIndex += line.length + 1
+        }
+    }
+
     private fun appendStyledText(out: SpannableStringBuilder, lineText: String, inkColor: Int, accentColor: Int, chipTextSizePx: Float) {
         val inlineRegex = Regex("""\*\*(.+?)\*\*|\*(.+?)\*""")
         var cursor = 0
         val plain = StringBuilder()
-        val styleRanges = mutableListOf<Triple<Int, Int, Int>>() // start, end, Typeface.BOLD/ITALIC
+        val styleRanges = mutableListOf<Triple<Int, Int, Int>>()
 
         for (m in inlineRegex.findAll(lineText)) {
             plain.append(lineText, cursor, m.range.first)
@@ -90,7 +157,11 @@ object MarkdownRenderer {
             out.setSpan(StyleSpan(style), baseOffset + s, baseOffset + e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
 
-        for (range in TimestampFormat.findTimestampRanges(plain.toString())) {
+        val plainStr = plain.toString()
+        val chipRanges = TimestampFormat.findTimestampRanges(plainStr).toMutableList()
+        for (m in TAG_REGEX.findAll(plainStr)) chipRanges.add(m.range)
+
+        for (range in chipRanges.sortedBy { it.first }) {
             out.setSpan(
                 ChipSpan(accentColor, inkColor, chipTextSizePx),
                 baseOffset + range.first, baseOffset + range.last + 1,
