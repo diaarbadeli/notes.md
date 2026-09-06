@@ -16,8 +16,8 @@ import androidx.core.graphics.ColorUtils
 class LiveMarkdownWatcher(
     private val inkColor: Int,
     private val accentColor: Int,
-    private val checkboxSizePx: Float,
-    private val chipTextSizePx: Float
+    var checkboxSizePx: Float,
+    var chipTextSizePx: Float
 ) : TextWatcher {
 
     private val dimMarkerColor = ColorUtils.setAlphaComponent(inkColor, 90)
@@ -78,11 +78,10 @@ class LiveMarkdownWatcher(
                 }
                 bulletMatch != null -> {
                     val indent = bulletMatch.groupValues[1]
-                    val rest = bulletMatch.groupValues[2]
                     val bulletStart = lineStart + indent.length
-                    val bulletEnd = lineEnd - rest.length
-                    if (bulletEnd > bulletStart) {
-                        s.setSpan(BulletGlyphSpan(accentColor), bulletStart, bulletEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    val bulletEnd = bulletStart + 1 // the dash character only — never the spaces after it
+                    if (bulletEnd <= lineEnd) {
+                        s.setSpan(BulletGlyphSpan(dimCheckedColor), bulletStart, bulletEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     }
                     applyInlineSpans(s, raw, bulletEnd, lineEnd)
                 }

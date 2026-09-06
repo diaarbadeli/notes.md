@@ -25,11 +25,17 @@ class Prefs(context: Context) {
         get() = sp.getInt(KEY_DATE_STYLE, DateStyle.CLOCK_24H)
         set(value) = sp.edit().putInt(KEY_DATE_STYLE, value).apply()
 
+    /** Shared text size (sp) for both edit and read mode — set via pinch-to-zoom, persists across restarts. */
+    var textSizeSp: Float
+        get() = sp.getFloat(KEY_TEXT_SIZE, 16f)
+        set(value) = sp.edit().putFloat(KEY_TEXT_SIZE, value).apply()
+
     companion object {
         private const val KEY_FOLDER = "target_folder_uri"
         private const val KEY_CURRENT_FILE = "current_file_uri"
         private const val KEY_ORDER = "toolbar_order"
         private const val KEY_DATE_STYLE = "date_format_style"
+        private const val KEY_TEXT_SIZE = "text_size_sp"
     }
 }
 

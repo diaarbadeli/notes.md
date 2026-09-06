@@ -20,21 +20,23 @@ import androidx.core.graphics.ColorUtils
 object MarkdownRenderer {
 
     val CHECKBOX_LINE = Regex("""^(\s*)-\s?\[( |x|X)\]\s?(.*)$""")
-    val BULLET_LINE = Regex("""^(\s*)-\s+(.*)$""")
+    val BULLET_LINE = Regex("""^(\s*)-( +)(.*)$""")
     val HR_LINE = Regex("""^-{3,}$""")
     val TAG_REGEX = Regex("""(?<![\w#])#\w[\w-]*""")
     private val CODE_FENCE_REGEX = Regex("""```[^\n]*\n([\s\S]*?)```""")
     private const val CHECKBOX_PLACEHOLDER = '\u00A0'
+    private const val COPY_ICON_PLACEHOLDER = '\u00A0'
     private const val BG_COLOR = 0xFF111111.toInt()
-    private const val CODE_BG = 0xFF1A1A1A.toInt()
 
     fun render(
+        context: android.content.Context,
         raw: String,
         inkColor: Int,
         accentColor: Int,
         bodyTextSizePx: Float,
         chipTextSizePx: Float,
         checkboxSizePx: Float,
+        cornerRadiusPx: Float,
         onToggleCheckbox: (rawLineStart: Int) -> Unit,
         onCopyCodeBlock: (String) -> Unit = {}
     ): SpannableStringBuilder {
@@ -44,7 +46,7 @@ object MarkdownRenderer {
         for (m in CODE_FENCE_REGEX.findAll(raw)) {
             renderLines(raw.substring(lastEnd, m.range.first), lastEnd, inkColor, accentColor, chipTextSizePx, checkboxSizePx, out, onToggleCheckbox)
             if (out.isNotEmpty() && out.last() != '\n') out.append("\n")
-            renderCodeBlock(m.groupValues[1], inkColor, out, onCopyCodeBlock)
+            renderCodeBlock(context, m.groupValues[1], inkColor, cornerRadiusPx, out, onCopyCodeBlock)
             lastEnd = m.range.last + 1
         }
         renderLines(raw.substring(lastEnd), lastEnd, inkColor, accentColor, chipTextSizePx, checkboxSizePx, out, onToggleCheckbox)
@@ -52,14 +54,28 @@ object MarkdownRenderer {
         return out
     }
 
-    private fun renderCodeBlock(code: String, inkColor: Int, out: SpannableStringBuilder, onCopy: (String) -> Unit) {
+    private fun renderCodeBlock(
+        context: android.content.Context, code: String, inkColor: Int, cornerRadiusPx: Float,
+        out: SpannableStringBuilder, onCopy: (String) -> Unit
+    ) {
         val trimmed = code.removeSuffix("\n")
         val start = out.length
         out.append(trimmed)
+        out.append("  ")
+        val iconStart = out.length
+        out.append(COPY_ICON_PLACEHOLDER)
         val end = out.length
+
         if (end > start) {
-            out.setSpan(TypefaceSpan("monospace"), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            out.setSpan(CodeBlockSpan(CODE_BG), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            val drawable = androidx.core.content.ContextCompat.getDrawable(context, R.drawable.ic_copy)?.mutate()
+            if (drawable != null) {
+                val size = (cornerRadiusPx * 3.2f).toInt().coerceAtLeast(1)
+                drawable.setBounds(0, 0, size, size)
+                drawable.setTint(inkColor)
+                out.setSpan(android.text.style.ImageSpan(drawable, android.text.style.ImageSpan.ALIGN_BASELINE), iconStart, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            out.setSpan(TypefaceSpan("monospace"), start, iconStart, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            out.setSpan(CodeBlockSpan(0xFF1A1A1A.toInt(), start, end, cornerRadiusPx), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             out.setSpan(object : ClickableSpan() {
                 override fun onClick(widget: View) = onCopy(trimmed)
                 override fun updateDrawState(ds: android.text.TextPaint) { ds.color = inkColor }
@@ -117,11 +133,13 @@ object MarkdownRenderer {
                 BULLET_LINE.matchEntire(line) != null -> {
                     val match = BULLET_LINE.matchEntire(line)!!
                     val indent = match.groupValues[1]
-                    val rest = match.groupValues[2]
+                    val spaces = match.groupValues[2]
+                    val rest = match.groupValues[3]
                     out.append(indent)
                     val bulletStart = out.length
-                    out.append("- ")
-                    out.setSpan(BulletGlyphSpan(accentColor), bulletStart, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    out.append("-")
+                    out.setSpan(BulletGlyphSpan(ColorUtils.setAlphaComponent(inkColor, 204)), bulletStart, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    out.append(spaces)
                     appendStyledText(out, rest, inkColor, accentColor, chipTextSizePx)
                 }
 

@@ -6,13 +6,16 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Rect
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.text.method.LinkMovementMethod
+import android.util.TypedValue
 import android.view.LayoutInflater
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewTreeObserver
 import android.widget.EditText
@@ -21,6 +24,8 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.documentfile.provider.DocumentFile
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -42,6 +47,9 @@ class MainActivity : AppCompatActivity() {
     private var suppressWatcher = false
     private var pendingFolderAction = PendingFolderAction.NONE
     private var keyboardVisible = false
+    private var currentTextSizeSp = 16f
+    private lateinit var liveWatcher: LiveMarkdownWatcher
+    private lateinit var scaleDetector: ScaleGestureDetector
 
     private val ink = 0xFFDFCBC9.toInt()
     private val accent = 0xFF072331.toInt()
@@ -85,8 +93,13 @@ class MainActivity : AppCompatActivity() {
         preview = findViewById(R.id.preview)
         toolbarRecycler = findViewById(R.id.toolbar)
 
+        currentTextSizeSp = prefs.textSizeSp
+        applyTextSize()
+        applyTypography()
+
         setupToolbar()
         setupEditor()
+        setupPinchZoom()
         setupKeyboardVisibilityTracking()
 
         preview.setOnClickListener {
@@ -107,20 +120,41 @@ class MainActivity : AppCompatActivity() {
     // ---------------------------------------------------------------- keyboard-driven mode
 
     private fun setupKeyboardVisibilityTracking() {
-        root.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
-            override fun onGlobalLayout() {
-                val r = Rect()
-                root.getWindowVisibleDisplayFrame(r)
-                val screenHeight = root.rootView.height
-                val keypadHeight = screenHeight - r.bottom
-                val isVisible = keypadHeight > screenHeight * 0.15
-
-                if (isVisible != keyboardVisible) {
-                    keyboardVisible = isVisible
-                    onKeyboardVisibilityChanged(isVisible, keypadHeight)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+                val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
+                val imeHeight = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+                if (imeVisible != keyboardVisible) {
+                    keyboardVisible = imeVisible
+                    onKeyboardVisibilityChanged(imeVisible, imeHeight)
+                } else if (imeVisible) {
+                    updateToolbarMargin(imeHeight)
                 }
+                insets
             }
-        })
+        } else {
+            // API 28-29: no reliable IME inset reporting, fall back to display-frame heuristic.
+            root.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
+                override fun onGlobalLayout() {
+                    val r = Rect()
+                    root.getWindowVisibleDisplayFrame(r)
+                    val screenHeight = root.rootView.height
+                    val keypadHeight = screenHeight - r.bottom
+                    val isVisible = keypadHeight > screenHeight * 0.15
+                    if (isVisible != keyboardVisible) {
+                        keyboardVisible = isVisible
+                        onKeyboardVisibilityChanged(isVisible, keypadHeight)
+                    }
+                }
+            })
+        }
+    }
+
+    private fun updateToolbarMargin(keypadHeightPx: Int) {
+        val lp = toolbarRecycler.layoutParams as android.widget.FrameLayout.LayoutParams
+        val margin = (12 * resources.displayMetrics.density).toInt()
+        lp.bottomMargin = keypadHeightPx + margin
+        toolbarRecycler.layoutParams = lp
     }
 
     private fun onKeyboardVisibilityChanged(visible: Boolean, keypadHeightPx: Int) {
@@ -128,10 +162,7 @@ class MainActivity : AppCompatActivity() {
             editor.visibility = View.VISIBLE
             preview.visibility = View.GONE
             toolbarRecycler.visibility = View.VISIBLE
-            val lp = toolbarRecycler.layoutParams as android.widget.FrameLayout.LayoutParams
-            val margin = (12 * resources.displayMetrics.density).toInt()
-            lp.bottomMargin = keypadHeightPx + margin
-            toolbarRecycler.layoutParams = lp
+            updateToolbarMargin(keypadHeightPx)
         } else {
             renderPreview()
             editor.visibility = View.GONE
@@ -279,7 +310,8 @@ class MainActivity : AppCompatActivity() {
     // ---------------------------------------------------------------- editor + autosave
 
     private fun setupEditor() {
-        editor.addTextChangedListener(LiveMarkdownWatcher(ink, accent, editor.textSize * 0.85f, editor.textSize * 0.8f))
+        liveWatcher = LiveMarkdownWatcher(ink, accent, editor.textSize * 0.85f, editor.textSize * 0.8f)
+        editor.addTextChangedListener(liveWatcher)
         editor.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -289,6 +321,47 @@ class MainActivity : AppCompatActivity() {
                 scheduleAutosave()
             }
         })
+    }
+
+    // ---------------------------------------------------------------- text size (shared, persisted, pinch-to-zoom)
+
+    private fun applyTextSize() {
+        editor.setTextSize(TypedValue.COMPLEX_UNIT_SP, currentTextSizeSp)
+        preview.setTextSize(TypedValue.COMPLEX_UNIT_SP, currentTextSizeSp)
+    }
+
+    private fun applyTypography() {
+        // Slightly increased line-height and letter-spacing for easier reading
+        // (helps with ADHD/dyslexia/autism-friendly layouts); identical in both
+        // modes so nothing visually shifts when the keyboard opens or closes.
+        for (tv in listOf<TextView>(editor, preview)) {
+            tv.setLineSpacing(0f, 1.3f)
+            tv.letterSpacing = 0.01f
+        }
+    }
+
+    private fun setupPinchZoom() {
+        scaleDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                currentTextSizeSp = (currentTextSizeSp * detector.scaleFactor).coerceIn(12f, 28f)
+                applyTextSize()
+                return true
+            }
+
+            override fun onScaleEnd(detector: ScaleGestureDetector) {
+                prefs.textSizeSp = currentTextSizeSp
+                liveWatcher.checkboxSizePx = editor.textSize * 0.85f
+                liveWatcher.chipTextSizePx = editor.textSize * 0.8f
+                liveWatcher.afterTextChanged(editor.text)
+                if (!keyboardVisible) renderPreview()
+            }
+        })
+        val pinchListener = View.OnTouchListener { _, event ->
+            scaleDetector.onTouchEvent(event)
+            scaleDetector.isInProgress
+        }
+        editor.setOnTouchListener(pinchListener)
+        preview.setOnTouchListener(pinchListener)
     }
 
     private fun maybePushUndoSnapshot() {
@@ -406,13 +479,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderPreview() {
         val bodySize = editor.textSize
+        val cornerRadiusPx = 10 * resources.displayMetrics.density
         preview.text = MarkdownRenderer.render(
+            context = this,
             raw = editor.text.toString(),
             inkColor = ink,
             accentColor = accent,
             bodyTextSizePx = bodySize,
             chipTextSizePx = bodySize * 0.8f,
             checkboxSizePx = bodySize * 0.85f,
+            cornerRadiusPx = cornerRadiusPx,
             onToggleCheckbox = { rawLineStart -> toggleCheckboxAndSave(rawLineStart) },
             onCopyCodeBlock = { code -> copyToClipboard(code) }
         )
