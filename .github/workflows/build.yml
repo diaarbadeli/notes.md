@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,7 +37,23 @@ jobs:
           gradle-version: 8.7
 
       - name: Build debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: |
+          gradle assembleDebug --no-daemon --stacktrace > build.log 2>&1
+          echo "BUILD_EXIT=$?" >> "$GITHUB_ENV"
+          tail -c 60000 build.log
+
+      - name: Publish build log (always, for diagnostics)
+        if: always()
+        run: |
+          git config user.email "ci@local"
+          git config user.name "ci-bot"
+          git add -f build.log
+          git commit -m "ci log [skip ci]" || true
+          git push origin HEAD:ci-logs --force
+
+      - name: Fail job if build actually failed
+        if: env.BUILD_EXIT != '0'
+        run: exit 1
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
