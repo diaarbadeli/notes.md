@@ -8,7 +8,7 @@ class CodeBlockSpan(private val bgColor: Int) : LineBackgroundSpan {
     override fun drawBackground(
         canvas: Canvas, paint: Paint,
         left: Int, right: Int, top: Int, baseline: Int, bottom: Int,
-        text: CharSequence?, start: Int, end: Int, lineNumber: Int
+        text: CharSequence, start: Int, end: Int, lineNumber: Int
     ) {
         val bg = Paint(paint)
         bg.color = bgColor
