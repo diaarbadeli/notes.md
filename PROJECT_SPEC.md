@@ -157,7 +157,84 @@ notes/
             └── mipmap-anydpi-v26/ic_launcher.xml
 ```
 
-## 7. Decisions & trade-offs (so nothing gets relitigated later)
+## 8. Version 2 changelog (Material 3 redesign + refinements)
+
+Everything above was the original v1 spec. Since then the app went through a full
+interaction/visual overhaul. Summary of what changed and why, so nothing gets
+relitigated:
+
+**Layout & mode switching**
+- Single-screen model now driven entirely by IME (keyboard) visibility instead of a
+  manual toggle button: keyboard open → live-styled edit mode; keyboard closed → clean
+  read mode. Detected via `WindowInsetsCompat` IME type on API 30+, with the original
+  display-frame heuristic kept as an automatic fallback on API 28-29 (no reliable IME
+  inset reporting exists below API 30).
+- Toolbar is a floating M3 pill (`#072331` fill, `#DFCBC9` icons), centered and docked
+  directly above the keyboard, visible only while the keyboard is up. Fades + scales in
+  on appear, out on dismiss.
+- Read mode's `TextView` is wrapped in a `ScrollView` (a real gap in the original build —
+  it silently didn't scroll before) so long notes scroll properly in read mode.
+- Swipe down while already scrolled to the very top toggles between modes (Chrome-style
+  pull gesture) — implemented as pure observation (`OnTouchListener` always returns
+  `false` for single-finger drags) so it never fights normal scrolling.
+- Pinch-to-zoom adjusts a single shared text size (persisted, identical in both modes)
+  instead of the two modes silently using different unset Android defaults.
+
+**Toolbar**
+Final order: Undo · New · Load · Checkbox · Date/time · Italic · Bold · Codeblock.
+- New: tap creates a note named `dd-mmm-yyyy-HHmm`; long-press renames the *currently
+  open* file in place; swipe-up changes the target folder.
+- Load: tap opens the system file browser; long-press *and* swipe-up both open the
+  curated recents menu (redundant on purpose).
+- Date/time: tap inserts a timestamp; long-press and swipe-up both open the format
+  picker (24h / `yyyy-MM-dd HH:mm` / `MM-dd HH:mm`, Obsidian-style).
+- Codeblock: inserts a fenced block; rendered in read mode with softened rounded
+  corners and a tap-to-copy affordance (copy icon at the end of the block).
+- Drag-to-reorder still works for Undo/Checkbox/Italic/Bold/Codeblock via long-press
+  (system-timed, ~500ms). New/Load/Date are excluded from the drag pool since their own
+  long-press is taken by the menu/rename actions above — those three instead use a
+  custom exact-300ms hold timer (not the system default) with distinct haptic feedback:
+  1ms tick on tap, ~20ms on hold.
+
+**Load menu — curated recents, not a live folder scan**
+Every opened/created file is added to a persisted recents list (capped at 30 unpinned
+entries). Each row has a pin icon (keeps it permanently, removes its ✕) and, if unpinned,
+an ✕ to remove it from the list without touching the actual file.
+
+**Rendering**
+- `- ` bullets render as `•`; a lone `---` line renders as a horizontal rule.
+- `#tags` render as accent-filled pills, same treatment as timestamp chips.
+- Checked-checkbox line text renders at ~80% opacity.
+- Known bug fixed: the bullet glyph's `ReplacementSpan` was reporting a fixed width
+  regardless of how many spaces followed the dash, silently swallowing extra
+  manually-typed spaces. Fixed by having the glyph span cover only the dash character
+  itself — everything after it (including any spacing) renders as ordinary text.
+- Live preview (edit mode) applies the same styling as read mode directly onto the
+  `EditText`'s own text via non-destructive spans (no text is ever rewritten, only
+  spans added/removed), so formatting is visible while typing, Obsidian-style.
+
+**Messaging**
+No more "saved" confirmation pulse — a quiet, persistent banner reads "Not saved — pick
+New or Load" whenever the buffer isn't attached to a file yet, and disappears the moment
+one is. A brief toast appears only if an actual write fails. Swiping left-to-right in
+read mode shows a one-off word/character count toast.
+
+**Accessibility**
+Slightly increased line-height and letter-spacing, applied identically in both modes at
+all times (not just at rest) — deliberately ADHD/dyslexia/autism-friendly per your
+request, and consistent with using the system font (e.g. Recursive) throughout.
+
+**Known trade-offs, stated plainly**
+- The swipe-down-at-top toggle is a threshold-based approximation of a browser pull
+  gesture (fires once you've dragged ~130px past the top edge) — no elastic
+  pull/release animation like Chrome's, since building a full nested-scroll overscroll
+  effect was out of scope for the time this pass had.
+- Draggable toolbar buttons' long-press-to-reorder timing is still the OS default
+  (~500ms), not the custom 300ms used for New/Load/Date — reimplementing
+  `ItemTouchHelper`'s internal long-press detection to match wasn't worth the
+  engineering cost for an infrequent action.
+
+## 7. v1 decisions & trade-offs (kept for reference)
 
 - **SAF over `MANAGE_EXTERNAL_STORAGE`**: you don't want Play distribution, so either
   would work permission-wise, but SAF needs zero special-permission screens and Android

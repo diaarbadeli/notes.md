@@ -30,14 +30,30 @@ class Prefs(context: Context) {
         get() = sp.getFloat(KEY_TEXT_SIZE, 16f)
         set(value) = sp.edit().putFloat(KEY_TEXT_SIZE, value).apply()
 
+    /** Curated recents shown in the Load menu — user-removable, pinnable. Encoded one-entry-per-line. */
+    var recentNotes: List<RecentEntry>
+        get() = sp.getString(KEY_RECENTS, null)
+            ?.split("\n")
+            ?.mapNotNull { line ->
+                val parts = line.split("|||")
+                if (parts.size == 3) RecentEntry(parts[0], parts[1], parts[2] == "1") else null
+            } ?: emptyList()
+        set(value) = sp.edit().putString(
+            KEY_RECENTS,
+            value.joinToString("\n") { "${it.uri}|||${it.name}|||${if (it.pinned) "1" else "0"}" }
+        ).apply()
+
     companion object {
         private const val KEY_FOLDER = "target_folder_uri"
         private const val KEY_CURRENT_FILE = "current_file_uri"
         private const val KEY_ORDER = "toolbar_order"
         private const val KEY_DATE_STYLE = "date_format_style"
         private const val KEY_TEXT_SIZE = "text_size_sp"
+        private const val KEY_RECENTS = "recent_notes"
     }
 }
+
+data class RecentEntry(val uri: String, val name: String, val pinned: Boolean)
 
 object DateStyle {
     const val CLOCK_24H = 0

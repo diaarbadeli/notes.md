@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="@drawable/bg_menu_item"
+    android:paddingStart="14dp"
+    android:paddingEnd="6dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
+
+    <TextView
+        android:id="@+id/name"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textColor="@color/ink"
+        android:textSize="14sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp" />
+
+    <ImageButton
+        android:id="@+id/pinBtn"
+        android:layout_width="30dp"
+        android:layout_height="30dp"
+        android:background="@drawable/bg_menu_item"
+        android:src="@drawable/ic_pin"
+        android:padding="6dp"
+        android:scaleType="fitCenter" />
+
+    <ImageButton
+        android:id="@+id/removeBtn"
+        android:layout_width="30dp"
+        android:layout_height="30dp"
+        android:layout_marginStart="2dp"
+        android:background="@drawable/bg_menu_item"
+        android:src="@drawable/ic_close"
+        android:padding="7dp"
+        android:scaleType="fitCenter" />
+</LinearLayout>

@@ -19,16 +19,40 @@
         android:inputType="textMultiLine|textCapSentences"
         android:hint="@string/hint_empty" />
 
-    <TextView
-        android:id="@+id/preview"
+    <ScrollView
+        android:id="@+id/previewScroll"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@android:color/transparent"
-        android:textColor="@color/ink"
-        android:padding="20dp"
         android:visibility="gone"
-        android:focusable="true"
-        android:focusableInTouchMode="true" />
+        android:scrollbars="none">
+
+        <TextView
+            android:id="@+id/preview"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@android:color/transparent"
+            android:textColor="@color/ink"
+            android:padding="20dp"
+            android:focusable="true"
+            android:focusableInTouchMode="true" />
+    </ScrollView>
+
+    <TextView
+        android:id="@+id/unsavedBanner"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="14dp"
+        android:background="@drawable/bg_menu_card"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:textColor="@color/ink_dim"
+        android:textSize="12sp"
+        android:text="Not saved — pick New or Load"
+        android:visibility="gone"
+        android:elevation="6dp" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/toolbar"

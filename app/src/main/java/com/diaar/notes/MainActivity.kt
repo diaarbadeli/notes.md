@@ -32,6 +32,7 @@ import androidx.recyclerview.widget.RecyclerView
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 
 private enum class PendingFolderAction { NONE, SET_ONLY, CREATE_NEW_AFTER }
 
@@ -41,7 +42,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var root: View
     private lateinit var editor: EditText
     private lateinit var preview: TextView
+    private lateinit var previewScroll: android.widget.ScrollView
     private lateinit var toolbarRecycler: RecyclerView
+    private lateinit var unsavedBanner: TextView
     private lateinit var adapter: ToolbarAdapter
 
     private var suppressWatcher = false
@@ -91,7 +94,9 @@ class MainActivity : AppCompatActivity() {
         root = findViewById(R.id.root)
         editor = findViewById(R.id.editor)
         preview = findViewById(R.id.preview)
+        previewScroll = findViewById(R.id.previewScroll)
         toolbarRecycler = findViewById(R.id.toolbar)
+        unsavedBanner = findViewById(R.id.unsavedBanner)
 
         currentTextSizeSp = prefs.textSizeSp
         applyTextSize()
@@ -99,22 +104,22 @@ class MainActivity : AppCompatActivity() {
 
         setupToolbar()
         setupEditor()
-        setupPinchZoom()
+        setupGestures()
         setupKeyboardVisibilityTracking()
 
-        preview.setOnClickListener {
-            editor.visibility = View.VISIBLE
-            preview.visibility = View.GONE
-            editor.requestFocus()
-            showKeyboardOn(editor)
-        }
+        preview.setOnClickListener { enterEditMode() }
 
         prefs.currentFileUri?.let { uri ->
             try { openFileIntoEditor(uri) } catch (_: Exception) { prefs.currentFileUri = null }
         }
+        updateUnsavedBanner()
         renderPreview()
         editor.visibility = View.GONE
-        preview.visibility = View.VISIBLE
+        previewScroll.visibility = View.VISIBLE
+    }
+
+    private fun updateUnsavedBanner() {
+        unsavedBanner.visibility = if (prefs.currentFileUri == null) View.VISIBLE else View.GONE
     }
 
     // ---------------------------------------------------------------- keyboard-driven mode
@@ -160,15 +165,42 @@ class MainActivity : AppCompatActivity() {
     private fun onKeyboardVisibilityChanged(visible: Boolean, keypadHeightPx: Int) {
         if (visible) {
             editor.visibility = View.VISIBLE
-            preview.visibility = View.GONE
-            toolbarRecycler.visibility = View.VISIBLE
+            previewScroll.visibility = View.GONE
             updateToolbarMargin(keypadHeightPx)
+            showToolbarAnimated()
         } else {
             renderPreview()
             editor.visibility = View.GONE
-            preview.visibility = View.VISIBLE
-            toolbarRecycler.visibility = View.GONE
+            previewScroll.visibility = View.VISIBLE
+            hideToolbarAnimated()
         }
+    }
+
+    private fun showToolbarAnimated() {
+        if (toolbarRecycler.visibility == View.VISIBLE) return
+        toolbarRecycler.visibility = View.VISIBLE
+        toolbarRecycler.alpha = 0f
+        toolbarRecycler.scaleX = 0.85f
+        toolbarRecycler.scaleY = 0.85f
+        toolbarRecycler.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(150).start()
+    }
+
+    private fun hideToolbarAnimated() {
+        toolbarRecycler.animate().alpha(0f).scaleX(0.85f).scaleY(0.85f).setDuration(120)
+            .withEndAction { toolbarRecycler.visibility = View.GONE }.start()
+    }
+
+    private fun enterEditMode() {
+        editor.visibility = View.VISIBLE
+        previewScroll.visibility = View.GONE
+        editor.requestFocus()
+        showKeyboardOn(editor)
+    }
+
+    private fun exitEditModeToRead() {
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        imm.hideSoftInputFromWindow(editor.windowToken, 0)
+        // the keyboard-visibility listener (IME insets or heuristic) takes it from here
     }
 
     private fun showKeyboardOn(view: View) {
@@ -196,10 +228,7 @@ class MainActivity : AppCompatActivity() {
         adapter = ToolbarAdapter(
             initialOrder = restoreOrder(),
             onClick = { onToolbarClick(it) },
-            onLongPressNew = {
-                pendingFolderAction = PendingFolderAction.SET_ONLY
-                openTreeLauncher.launch(prefs.targetFolderUri)
-            },
+            onLongPress = { button, view -> onToolbarLongPress(button, view) },
             onSwipeUp = { button, view -> onToolbarSwipeUp(button, view) },
             onOrderChanged = { prefs.toolbarOrder = it.map { b -> b.name } }
         )
@@ -228,9 +257,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // New: long-press renames the currently open file; swipe-up changes the target folder.
+    // Load & Date: long-press and swipe-up both open the same menu (redundant on purpose).
+    private fun onToolbarLongPress(button: ToolbarButton, anchor: View) {
+        when (button) {
+            ToolbarButton.NEW -> showRenamePopup(anchor)
+            ToolbarButton.LOAD -> showLoadListPopup(anchor)
+            ToolbarButton.DATETIME -> showDateFormatPopup(anchor)
+            else -> {}
+        }
+    }
+
     private fun onToolbarSwipeUp(button: ToolbarButton, anchor: View) {
         when (button) {
-            ToolbarButton.NEW -> showNewNamePopup(anchor)
+            ToolbarButton.NEW -> {
+                pendingFolderAction = PendingFolderAction.SET_ONLY
+                openTreeLauncher.launch(prefs.targetFolderUri)
+            }
             ToolbarButton.LOAD -> showLoadListPopup(anchor)
             ToolbarButton.DATETIME -> showDateFormatPopup(anchor)
             else -> {}
@@ -239,56 +282,99 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------------------------------------------------------- anchored popups
 
-    private fun showNewNamePopup(anchor: View) {
+    private fun showRenamePopup(anchor: View) {
+        val uri = prefs.currentFileUri
+        if (uri == null) {
+            Toast.makeText(this, "No note open to rename", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val currentName = try {
+            DocumentFile.fromSingleUri(this, uri)?.name?.removeSuffix(".md") ?: ""
+        } catch (_: Exception) { "" }
+
         val view = LayoutInflater.from(this).inflate(R.layout.popup_new_name, null)
         val input = view.findViewById<EditText>(R.id.nameInput)
         val confirm = view.findViewById<ImageButton>(R.id.confirmBtn)
-        input.setText(defaultNoteName())
+        input.setText(currentName)
         input.setSelection(input.text.length)
 
         val popup = AnchoredPopup.showAbove(this, anchor, view)
-        val create = {
+        val confirmRename = {
             val raw = input.text.toString().trim()
             popup.dismiss()
-            if (prefs.targetFolderUri == null) {
-                pendingFolderAction = PendingFolderAction.CREATE_NEW_AFTER
-                openTreeLauncher.launch(null)
-            } else {
-                createNewNote(if (raw.isEmpty()) defaultNoteName() else raw)
-            }
+            if (raw.isNotEmpty()) renameCurrentFile(raw)
         }
-        confirm.setOnClickListener { create() }
-        input.setOnEditorActionListener { _, _, _ -> create(); true }
+        confirm.setOnClickListener { confirmRename() }
+        input.setOnEditorActionListener { _, _, _ -> confirmRename(); true }
+    }
+
+    private fun renameCurrentFile(newNameRaw: String) {
+        val uri = prefs.currentFileUri ?: return
+        val finalName = if (newNameRaw.endsWith(".md", ignoreCase = true)) newNameRaw else "$newNameRaw.md"
+        try {
+            val docFile = DocumentFile.fromSingleUri(this, uri)
+            val oldUriString = uri.toString()
+            if (docFile != null && docFile.renameTo(finalName)) {
+                prefs.currentFileUri = docFile.uri
+                val recents = prefs.recentNotes.toMutableList()
+                val idx = recents.indexOfFirst { it.uri == oldUriString }
+                if (idx >= 0) recents[idx] = recents[idx].copy(uri = docFile.uri.toString(), name = finalName)
+                prefs.recentNotes = recents
+            } else {
+                Toast.makeText(this, "Couldn't rename this file", Toast.LENGTH_SHORT).show()
+            }
+        } catch (_: Exception) {
+            Toast.makeText(this, "Couldn't rename this file", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun addToRecents(uri: Uri, name: String) {
+        val current = prefs.recentNotes.toMutableList()
+        current.removeAll { it.uri == uri.toString() }
+        current.add(0, RecentEntry(uri.toString(), name, false))
+        val pinned = current.filter { it.pinned }
+        val unpinned = current.filter { !it.pinned }.take(30)
+        prefs.recentNotes = pinned + unpinned
     }
 
     private fun showLoadListPopup(anchor: View) {
         val view = LayoutInflater.from(this).inflate(R.layout.popup_note_list, null)
         val fileList = view.findViewById<RecyclerView>(R.id.fileList)
         val emptyLabel = view.findViewById<TextView>(R.id.emptyLabel)
+        lateinit var popupHandle: AnchoredPopupHandle
 
-        val folderUri = prefs.targetFolderUri
-        val files: List<Pair<String, Uri>> = if (folderUri != null) {
-            DocumentFile.fromTreeUri(this, folderUri)
-                ?.listFiles()
-                ?.filter { it.isFile && it.name?.endsWith(".md", ignoreCase = true) == true }
-                ?.sortedByDescending { it.lastModified() }
-                ?.map { (it.name ?: "untitled.md") to it.uri }
-                ?: emptyList()
-        } else emptyList()
-
-        val popup = AnchoredPopup.showAbove(this, anchor, view)
-
-        if (files.isEmpty()) {
-            fileList.visibility = View.GONE
-            emptyLabel.visibility = View.VISIBLE
-            emptyLabel.text = if (folderUri == null) getString(R.string.no_folder_set) else getString(R.string.no_notes_here)
-        } else {
-            fileList.layoutManager = LinearLayoutManager(this)
-            fileList.adapter = NoteListAdapter(files) { uri ->
-                popup.dismiss()
-                openFileIntoEditor(uri)
+        fun refresh() {
+            val entries = prefs.recentNotes.sortedWith(compareByDescending<RecentEntry> { it.pinned })
+            if (entries.isEmpty()) {
+                fileList.visibility = View.GONE
+                emptyLabel.visibility = View.VISIBLE
+                emptyLabel.text = "No recent notes yet — open or create one"
+            } else {
+                fileList.visibility = View.VISIBLE
+                emptyLabel.visibility = View.GONE
+                fileList.layoutManager = LinearLayoutManager(this)
+                fileList.adapter = NoteListAdapter(
+                    entries = entries,
+                    onPick = { entry ->
+                        popupHandle.dismiss()
+                        openFileIntoEditor(Uri.parse(entry.uri))
+                    },
+                    onTogglePin = { entry ->
+                        val current = prefs.recentNotes.toMutableList()
+                        val idx = current.indexOfFirst { it.uri == entry.uri }
+                        if (idx >= 0) current[idx] = current[idx].copy(pinned = !current[idx].pinned)
+                        prefs.recentNotes = current
+                        refresh()
+                    },
+                    onRemove = { entry ->
+                        prefs.recentNotes = prefs.recentNotes.filterNot { it.uri == entry.uri }
+                        refresh()
+                    }
+                )
             }
         }
+        refresh()
+        popupHandle = AnchoredPopup.showAbove(this, anchor, view)
     }
 
     private fun showDateFormatPopup(anchor: View) {
@@ -340,7 +426,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupPinchZoom() {
+    private fun setupGestures() {
         scaleDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
                 currentTextSizeSp = (currentTextSizeSp * detector.scaleFactor).coerceIn(12f, 28f)
@@ -356,12 +442,63 @@ class MainActivity : AppCompatActivity() {
                 if (!keyboardVisible) renderPreview()
             }
         })
-        val pinchListener = View.OnTouchListener { _, event ->
+
+        editor.setOnTouchListener(swipeAndPinchListener(editor, onSwipeDownAtTop = { exitEditModeToRead() }))
+        previewScroll.setOnTouchListener(swipeAndPinchListener(
+            previewScroll,
+            onSwipeDownAtTop = { enterEditMode() },
+            onSwipeRight = { showWordCount() }
+        ))
+    }
+
+    private fun showWordCount() {
+        val text = editor.text.toString()
+        val words = text.trim().split(Regex("\\s+")).count { it.isNotBlank() }
+        val chars = text.length
+        Toast.makeText(this, "$words words · $chars characters", Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * One listener per view handling two independent gestures without stepping on normal
+     * scrolling/editing: two-finger pinch (text size) and a browser-style pull — swipe down
+     * while already scrolled to the very top toggles read/write. Both only ever *observe*
+     * single-finger drags (always returns false for them) so ordinary scrolling is untouched;
+     * only an active two-finger pinch is consumed.
+     */
+    private fun swipeAndPinchListener(
+        view: View,
+        onSwipeDownAtTop: () -> Unit,
+        onSwipeRight: (() -> Unit)? = null
+    ): View.OnTouchListener {
+        var startX = 0f
+        var startY = 0f
+        var atTopOnDown = false
+        var triggered = false
+        return View.OnTouchListener { v, event ->
             scaleDetector.onTouchEvent(event)
+            when (event.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    startX = event.x
+                    startY = event.y
+                    atTopOnDown = !v.canScrollVertically(-1)
+                    triggered = false
+                }
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    if (!triggered && !scaleDetector.isInProgress) {
+                        val dx = event.x - startX
+                        val dy = event.y - startY
+                        if (atTopOnDown && dy > 130f && abs(dy) > abs(dx)) {
+                            triggered = true
+                            onSwipeDownAtTop()
+                        } else if (onSwipeRight != null && dx > 130f && abs(dx) > abs(dy)) {
+                            triggered = true
+                            onSwipeRight()
+                        }
+                    }
+                }
+            }
             scaleDetector.isInProgress
         }
-        editor.setOnTouchListener(pinchListener)
-        preview.setOnTouchListener(pinchListener)
     }
 
     private fun maybePushUndoSnapshot() {
@@ -442,7 +579,9 @@ class MainActivity : AppCompatActivity() {
             contentResolver.openOutputStream(uri, "wt")?.use {
                 it.write(editor.text.toString().toByteArray(Charsets.UTF_8))
             }
-        } catch (_: Exception) { /* fails silently; text remains safe in the editor */ }
+        } catch (_: Exception) {
+            Toast.makeText(this, "Couldn't save — check the file is still accessible", Toast.LENGTH_SHORT).show()
+        }
     }
 
     // ---------------------------------------------------------------- open / create
@@ -456,6 +595,9 @@ class MainActivity : AppCompatActivity() {
         lastSnapshot = text
         undoStack.clear()
         prefs.currentFileUri = uri
+        val name = try { DocumentFile.fromSingleUri(this, uri)?.name ?: "untitled.md" } catch (_: Exception) { "untitled.md" }
+        addToRecents(uri, name)
+        updateUnsavedBanner()
         if (!keyboardVisible) renderPreview()
     }
 
@@ -471,6 +613,8 @@ class MainActivity : AppCompatActivity() {
         lastSnapshot = ""
         undoStack.clear()
         prefs.currentFileUri = newFile.uri
+        addToRecents(newFile.uri, finalName)
+        updateUnsavedBanner()
         editor.requestFocus()
         showKeyboardOn(editor)
     }

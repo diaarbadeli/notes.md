@@ -1,36 +1,45 @@
 package com.diaar.notes
 
-import android.view.GestureDetector
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.view.LayoutInflater
 import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import kotlin.math.abs
+import kotlin.math.sqrt
 
-enum class ToolbarButton(val iconRes: Int, val draggable: Boolean = true, val swipeUp: Boolean = false) {
+enum class ToolbarButton(val iconRes: Int, val draggable: Boolean = true) {
     UNDO(R.drawable.ic_undo),
-    NEW(R.drawable.ic_new, draggable = false, swipeUp = true),
-    LOAD(R.drawable.ic_send, swipeUp = true),
+    NEW(R.drawable.ic_new, draggable = false),
+    LOAD(R.drawable.ic_send, draggable = false),
     CHECKBOX(R.drawable.ic_checkbox),
-    DATETIME(R.drawable.ic_datetime, swipeUp = true),
+    DATETIME(R.drawable.ic_datetime, draggable = false),
     ITALIC(R.drawable.ic_italic),
     BOLD(R.drawable.ic_bold),
     CODEBLOCK(R.drawable.ic_codeblock)
 }
 
+private const val HOLD_MS = 300L
+private const val TAP_VIBE_MS = 1L
+private const val HOLD_VIBE_MS = 20L
+private const val MOVE_SLOP = 20f
+private const val SWIPE_UP_THRESHOLD = 40f
+
 class ToolbarAdapter(
     initialOrder: List<ToolbarButton>,
     private val onClick: (ToolbarButton) -> Unit,
-    private val onLongPressNew: () -> Unit,
-    private val onSwipeUp: (ToolbarButton, android.view.View) -> Unit,
+    private val onLongPress: (ToolbarButton, View) -> Unit,
+    private val onSwipeUp: (ToolbarButton, View) -> Unit,
     private val onOrderChanged: (List<ToolbarButton>) -> Unit
 ) : RecyclerView.Adapter<ToolbarAdapter.ViewHolder>() {
 
     val items: MutableList<ToolbarButton> = initialOrder.toMutableList()
 
-    inner class ViewHolder(itemView: android.view.View) : RecyclerView.ViewHolder(itemView) {
+    inner class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         val icon: ImageView = itemView.findViewById(R.id.icon)
     }
 
@@ -43,34 +52,72 @@ class ToolbarAdapter(
 
     override fun getItemCount() = items.size
 
+    private fun vibrate(view: View, ms: Long) {
+        try {
+            val vibrator = view.context.getSystemService(Vibrator::class.java) ?: return
+            vibrator.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE))
+        } catch (_: Exception) { /* haptics are a nicety, never worth crashing over */ }
+    }
+
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val button = items[position]
         holder.icon.setImageResource(button.iconRes)
 
-        val gestureDetector = GestureDetector(holder.itemView.context, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
-                if (button.swipeUp && e1 != null) {
-                    val dy = e2.y - e1.y
-                    if (dy < -40 && abs(velocityY) > abs(velocityX)) {
-                        onSwipeUp(button, holder.itemView)
-                        return true
-                    }
-                }
-                return false
+        if (button.draggable) {
+            holder.itemView.setOnTouchListener(null)
+            holder.itemView.setOnLongClickListener(null)
+            holder.itemView.setOnClickListener {
+                vibrate(holder.itemView, TAP_VIBE_MS)
+                onClick(button)
             }
-        })
-
-        holder.itemView.setOnTouchListener { _, event ->
-            gestureDetector.onTouchEvent(event)
-            false // never consume: let click / long-click keep working normally
-        }
-
-        holder.itemView.setOnClickListener { onClick(button) }
-
-        if (!button.draggable) {
-            holder.itemView.setOnLongClickListener { onLongPressNew(); true }
         } else {
-            holder.itemView.setOnLongClickListener(null) // ItemTouchHelper drives long-press-to-drag
+            holder.itemView.setOnClickListener(null)
+            holder.itemView.setOnLongClickListener(null)
+
+            var downX = 0f
+            var downY = 0f
+            var holdFired = false
+            var actionConsumed = false
+            val holdRunnable = Runnable {
+                holdFired = true
+                actionConsumed = true
+                vibrate(holder.itemView, HOLD_VIBE_MS)
+                onLongPress(button, holder.itemView)
+            }
+
+            holder.itemView.setOnTouchListener { v, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        downX = event.x; downY = event.y
+                        holdFired = false; actionConsumed = false
+                        v.postDelayed(holdRunnable, HOLD_MS)
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        if (!actionConsumed && !holdFired) {
+                            val dx = event.x - downX
+                            val dy = event.y - downY
+                            if (dy < -SWIPE_UP_THRESHOLD && abs(dy) > abs(dx)) {
+                                v.removeCallbacks(holdRunnable)
+                                actionConsumed = true
+                                onSwipeUp(button, v)
+                            }
+                        }
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        v.removeCallbacks(holdRunnable)
+                        if (!actionConsumed && !holdFired) {
+                            val dx = event.x - downX
+                            val dy = event.y - downY
+                            if (sqrt(dx * dx + dy * dy) < MOVE_SLOP) {
+                                vibrate(v, TAP_VIBE_MS)
+                                onClick(button)
+                            }
+                        }
+                    }
+                    MotionEvent.ACTION_CANCEL -> v.removeCallbacks(holdRunnable)
+                }
+                true
+            }
         }
     }
 
@@ -101,6 +148,13 @@ class ToolbarAdapter(
         }
 
         override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {}
+
+        override fun onSelectedChanged(viewHolder: RecyclerView.ViewHolder?, actionState: Int) {
+            super.onSelectedChanged(viewHolder, actionState)
+            if (actionState == ItemTouchHelper.ACTION_STATE_DRAG && viewHolder != null) {
+                vibrate(viewHolder.itemView, HOLD_VIBE_MS)
+            }
+        }
 
         override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
             super.clearView(recyclerView, viewHolder)
