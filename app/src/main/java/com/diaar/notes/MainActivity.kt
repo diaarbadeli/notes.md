@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Rect
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -24,8 +23,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.documentfile.provider.DocumentFile
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -125,48 +122,32 @@ class MainActivity : AppCompatActivity() {
     // ---------------------------------------------------------------- keyboard-driven mode
 
     private fun setupKeyboardVisibilityTracking() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
-                val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
-                val imeHeight = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-                if (imeVisible != keyboardVisible) {
-                    keyboardVisible = imeVisible
-                    onKeyboardVisibilityChanged(imeVisible, imeHeight)
-                } else if (imeVisible) {
-                    updateToolbarMargin(imeHeight)
+        // windowSoftInputMode is "adjustResize", so the window itself already shrinks to
+        // make room for the keyboard — we only need to know show/hide, never the keyboard's
+        // pixel height (adding that on top of an already-resized window was the earlier bug:
+        // it double-counted the keyboard and pushed the pill drastically out of place).
+        root.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                val r = Rect()
+                root.getWindowVisibleDisplayFrame(r)
+                val screenHeight = root.rootView.height
+                val keypadHeight = screenHeight - r.bottom
+                val isVisible = keypadHeight > screenHeight * 0.15
+                if (isVisible != keyboardVisible) {
+                    keyboardVisible = isVisible
+                    onKeyboardVisibilityChanged(isVisible)
                 }
-                insets
             }
-        } else {
-            // API 28-29: no reliable IME inset reporting, fall back to display-frame heuristic.
-            root.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
-                override fun onGlobalLayout() {
-                    val r = Rect()
-                    root.getWindowVisibleDisplayFrame(r)
-                    val screenHeight = root.rootView.height
-                    val keypadHeight = screenHeight - r.bottom
-                    val isVisible = keypadHeight > screenHeight * 0.15
-                    if (isVisible != keyboardVisible) {
-                        keyboardVisible = isVisible
-                        onKeyboardVisibilityChanged(isVisible, keypadHeight)
-                    }
-                }
-            })
-        }
+        })
     }
 
-    private fun updateToolbarMargin(keypadHeightPx: Int) {
-        val lp = toolbarRecycler.layoutParams as android.widget.FrameLayout.LayoutParams
-        val margin = (12 * resources.displayMetrics.density).toInt()
-        lp.bottomMargin = keypadHeightPx + margin
-        toolbarRecycler.layoutParams = lp
-    }
-
-    private fun onKeyboardVisibilityChanged(visible: Boolean, keypadHeightPx: Int) {
+    private fun onKeyboardVisibilityChanged(visible: Boolean) {
         if (visible) {
             editor.visibility = View.VISIBLE
             previewScroll.visibility = View.GONE
-            updateToolbarMargin(keypadHeightPx)
+            val lp = toolbarRecycler.layoutParams as android.widget.FrameLayout.LayoutParams
+            lp.bottomMargin = (12 * resources.displayMetrics.density).toInt()
+            toolbarRecycler.layoutParams = lp
             showToolbarAnimated()
         } else {
             renderPreview()
