@@ -119,9 +119,9 @@ object MarkdownRenderer {
                         override fun onClick(widget: View) = onToggleCheckbox(lineStartInRaw)
                         override fun updateDrawState(ds: android.text.TextPaint) {}
                     }, placeholderStart, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    out.append(" ")
+                    out.append("  ")
                     val restStart = out.length
-                    appendStyledText(out, rest, inkColor, accentColor, chipTextSizePx)
+                    appendStyledText(out, rest.trimStart(' '), inkColor, accentColor, chipTextSizePx)
                     if (checked) {
                         out.setSpan(
                             ForegroundColorSpan(ColorUtils.setAlphaComponent(inkColor, 204)),
@@ -176,13 +176,17 @@ object MarkdownRenderer {
         }
 
         val plainStr = plain.toString()
-        val chipRanges = TimestampFormat.findTimestampRanges(plainStr).toMutableList()
-        for (m in TAG_REGEX.findAll(plainStr)) chipRanges.add(m.range)
-
-        for (range in chipRanges.sortedBy { it.first }) {
+        for (range in TimestampFormat.findTimestampRanges(plainStr)) {
             out.setSpan(
                 ChipSpan(accentColor, inkColor, chipTextSizePx),
                 baseOffset + range.first, baseOffset + range.last + 1,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+        for (m in TAG_REGEX.findAll(plainStr)) {
+            out.setSpan(
+                ChipSpan(accentColor, inkColor, chipTextSizePx, hideFirstChar = true),
+                baseOffset + m.range.first, baseOffset + m.range.last + 1,
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
             )
         }

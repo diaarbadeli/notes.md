@@ -8,13 +8,18 @@ import android.text.style.ReplacementSpan
 
 /**
  * Renders its text on a filled, soft-cornered rounded-rect chip.
- * Used for timestamps in read mode: accent-colored fill, ink-colored text,
+ * Used for timestamps and #tags in read mode: accent-colored fill, ink-colored text,
  * one step smaller than surrounding body text — still the system typeface.
+ *
+ * [hideFirstChar] skips the first character of the span range when measuring/drawing
+ * (used for #tags, so the chip reads "tag" instead of "#tag") without altering the
+ * underlying text — the "#" is still there, just not painted.
  */
 class ChipSpan(
     private val bgColor: Int,
     private val textColor: Int,
     private val textSizePx: Float,
+    private val hideFirstChar: Boolean = false,
     private val horizontalPad: Float = 14f,
     private val verticalPad: Float = 5f
 ) : ReplacementSpan() {
@@ -26,9 +31,11 @@ class ChipSpan(
         return tp
     }
 
+    private fun displayStart(start: Int) = if (hideFirstChar) start + 1 else start
+
     override fun getSize(paint: Paint, text: CharSequence, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
         val tp = chipPaint(paint)
-        val width = tp.measureText(text, start, end)
+        val width = tp.measureText(text, displayStart(start), end)
         if (fm != null) {
             val pfm = paint.fontMetricsInt
             fm.ascent = pfm.ascent
@@ -41,7 +48,8 @@ class ChipSpan(
 
     override fun draw(canvas: Canvas, text: CharSequence, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
         val tp = chipPaint(paint)
-        val width = tp.measureText(text, start, end)
+        val displayStart = displayStart(start)
+        val width = tp.measureText(text, displayStart, end)
         val rect = RectF(
             x,
             y + paint.fontMetrics.ascent - verticalPad,
@@ -53,6 +61,6 @@ class ChipSpan(
         bgPaint.color = bgColor
         val corner = (rect.height()) * 0.35f
         canvas.drawRoundRect(rect, corner, corner, bgPaint)
-        canvas.drawText(text, start, end, x + horizontalPad, y.toFloat(), tp)
+        canvas.drawText(text, displayStart, end, x + horizontalPad, y.toFloat(), tp)
     }
 }
