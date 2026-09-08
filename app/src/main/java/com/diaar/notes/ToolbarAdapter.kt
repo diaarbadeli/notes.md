@@ -31,7 +31,7 @@ private const val SWIPE_UP_THRESHOLD = 40f
 
 class ToolbarAdapter(
     initialOrder: List<ToolbarButton>,
-    private val onClick: (ToolbarButton) -> Unit,
+    private val onClick: (ToolbarButton, View) -> Unit,
     private val onLongPress: (ToolbarButton, View) -> Unit,
     private val onSwipeUp: (ToolbarButton, View) -> Unit,
     private val onOrderChanged: (List<ToolbarButton>) -> Unit
@@ -68,7 +68,7 @@ class ToolbarAdapter(
             holder.itemView.setOnLongClickListener(null)
             holder.itemView.setOnClickListener {
                 vibrate(holder.itemView, TAP_VIBE_MS)
-                onClick(button)
+                onClick(button, holder.itemView)
             }
         } else {
             holder.itemView.setOnClickListener(null)
@@ -110,7 +110,7 @@ class ToolbarAdapter(
                             val dy = event.y - downY
                             if (sqrt(dx * dx + dy * dy) < MOVE_SLOP) {
                                 vibrate(v, TAP_VIBE_MS)
-                                onClick(button)
+                                onClick(button, v)
                             }
                         }
                     }

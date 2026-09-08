@@ -13,7 +13,6 @@
         android:background="@android:color/transparent"
         android:textColor="@color/ink"
         android:textColorHint="@color/ink_dim"
-        android:textCursorDrawable="@null"
         android:gravity="top|start"
         android:padding="20dp"
         android:inputType="textMultiLine|textCapSentences"

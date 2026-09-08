@@ -6,6 +6,8 @@
         <item name="colorSurface">@color/bg</item>
         <item name="colorOnSurface">@color/ink</item>
         <item name="colorSecondary">@color/accent</item>
+        <item name="colorControlActivated">@color/ink</item>
+        <item name="colorAccent">@color/ink</item>
         <item name="android:statusBarColor">@color/bg</item>
         <item name="android:navigationBarColor">@color/bg</item>
         <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>

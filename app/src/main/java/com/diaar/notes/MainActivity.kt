@@ -208,7 +208,7 @@ class MainActivity : AppCompatActivity() {
     private fun setupToolbar() {
         adapter = ToolbarAdapter(
             initialOrder = restoreOrder(),
-            onClick = { onToolbarClick(it) },
+            onClick = { button, view -> onToolbarClick(button, view) },
             onLongPress = { button, view -> onToolbarLongPress(button, view) },
             onSwipeUp = { button, view -> onToolbarSwipeUp(button, view) },
             onOrderChanged = { prefs.toolbarOrder = it.map { b -> b.name } }
@@ -218,7 +218,7 @@ class MainActivity : AppCompatActivity() {
         adapter.touchHelper.attachToRecyclerView(toolbarRecycler)
     }
 
-    private fun onToolbarClick(button: ToolbarButton) {
+    private fun onToolbarClick(button: ToolbarButton, anchor: View) {
         when (button) {
             ToolbarButton.UNDO -> doUndo()
             ToolbarButton.BOLD -> wrapSelectionOrInsert("**")
@@ -226,7 +226,7 @@ class MainActivity : AppCompatActivity() {
             ToolbarButton.CHECKBOX -> insertCheckboxAtLineStart()
             ToolbarButton.DATETIME -> insertTimestamp()
             ToolbarButton.CODEBLOCK -> insertCodeBlock()
-            ToolbarButton.LOAD -> openDocumentLauncher.launch(arrayOf("text/markdown", "text/plain", "text/*"))
+            ToolbarButton.LOAD -> showLoadListPopup(anchor)
             ToolbarButton.NEW -> {
                 if (prefs.targetFolderUri == null) {
                     pendingFolderAction = PendingFolderAction.CREATE_NEW_AFTER
@@ -239,11 +239,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     // New: long-press renames the currently open file; swipe-up changes the target folder.
-    // Load & Date: long-press and swipe-up both open the same menu (redundant on purpose).
+    // Load: tap opens the curated recents list; long-press opens the system file browser.
+    // Date: long-press and swipe-up both open the format menu (redundant on purpose).
     private fun onToolbarLongPress(button: ToolbarButton, anchor: View) {
         when (button) {
             ToolbarButton.NEW -> showRenamePopup(anchor)
-            ToolbarButton.LOAD -> showLoadListPopup(anchor)
+            ToolbarButton.LOAD -> openDocumentLauncher.launch(arrayOf("text/markdown", "text/plain", "text/*"))
             ToolbarButton.DATETIME -> showDateFormatPopup(anchor)
             else -> {}
         }
@@ -255,7 +256,6 @@ class MainActivity : AppCompatActivity() {
                 pendingFolderAction = PendingFolderAction.SET_ONLY
                 openTreeLauncher.launch(prefs.targetFolderUri)
             }
-            ToolbarButton.LOAD -> showLoadListPopup(anchor)
             ToolbarButton.DATETIME -> showDateFormatPopup(anchor)
             else -> {}
         }
@@ -292,15 +292,30 @@ class MainActivity : AppCompatActivity() {
     private fun renameCurrentFile(newNameRaw: String) {
         val uri = prefs.currentFileUri ?: return
         val finalName = if (newNameRaw.endsWith(".md", ignoreCase = true)) newNameRaw else "$newNameRaw.md"
+        val oldUriString = uri.toString()
+
         try {
-            val docFile = DocumentFile.fromSingleUri(this, uri)
-            val oldUriString = uri.toString()
+            // Prefer reaching the file through its granted tree — some providers only allow
+            // rename/delete via a document reached through the tree they were granted access
+            // to, not a bare single-document reference, even with read+write flags on that URI.
+            val treeUri = prefs.targetFolderUri
+            val treeAnchored = treeUri?.let { t ->
+                DocumentFile.fromTreeUri(this, t)?.listFiles()?.firstOrNull { it.uri == uri }
+            }
+            val docFile = treeAnchored ?: DocumentFile.fromSingleUri(this, uri)
+
             if (docFile != null && docFile.renameTo(finalName)) {
                 prefs.currentFileUri = docFile.uri
                 val recents = prefs.recentNotes.toMutableList()
                 val idx = recents.indexOfFirst { it.uri == oldUriString }
                 if (idx >= 0) recents[idx] = recents[idx].copy(uri = docFile.uri.toString(), name = finalName)
                 prefs.recentNotes = recents
+            } else if (treeAnchored == null && treeUri != null) {
+                Toast.makeText(
+                    this,
+                    "Can't rename — this file isn't in your target folder. Open it via Load's swipe-up list, or move it into your target folder first.",
+                    Toast.LENGTH_LONG
+                ).show()
             } else {
                 Toast.makeText(this, "Couldn't rename this file", Toast.LENGTH_SHORT).show()
             }
@@ -424,10 +439,10 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        editor.setOnTouchListener(swipeAndPinchListener(editor, onSwipeDownAtTop = { exitEditModeToRead() }))
+        editor.setOnTouchListener(swipeAndPinchListener(editor, onEdgePullToggle = { exitEditModeToRead() }))
         previewScroll.setOnTouchListener(swipeAndPinchListener(
             previewScroll,
-            onSwipeDownAtTop = { enterEditMode() },
+            onEdgePullToggle = { enterEditMode() },
             onSwipeRight = { showWordCount() }
         ))
     }
@@ -448,12 +463,13 @@ class MainActivity : AppCompatActivity() {
      */
     private fun swipeAndPinchListener(
         view: View,
-        onSwipeDownAtTop: () -> Unit,
+        onEdgePullToggle: () -> Unit,
         onSwipeRight: (() -> Unit)? = null
     ): View.OnTouchListener {
         var startX = 0f
         var startY = 0f
         var atTopOnDown = false
+        var atBottomOnDown = false
         var triggered = false
         return View.OnTouchListener { v, event ->
             scaleDetector.onTouchEvent(event)
@@ -462,6 +478,7 @@ class MainActivity : AppCompatActivity() {
                     startX = event.x
                     startY = event.y
                     atTopOnDown = !v.canScrollVertically(-1)
+                    atBottomOnDown = !v.canScrollVertically(1)
                     triggered = false
                 }
                 android.view.MotionEvent.ACTION_MOVE -> {
@@ -470,7 +487,10 @@ class MainActivity : AppCompatActivity() {
                         val dy = event.y - startY
                         if (atTopOnDown && dy > 130f && abs(dy) > abs(dx)) {
                             triggered = true
-                            onSwipeDownAtTop()
+                            onEdgePullToggle()
+                        } else if (atBottomOnDown && dy < -130f && abs(dy) > abs(dx)) {
+                            triggered = true
+                            onEdgePullToggle()
                         } else if (onSwipeRight != null && dx > 130f && abs(dx) > abs(dy)) {
                             triggered = true
                             onSwipeRight()
