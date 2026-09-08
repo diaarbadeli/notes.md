@@ -25,8 +25,9 @@ object MarkdownRenderer {
     val TAG_REGEX = Regex("""(?<![\w#])#\w[\w-]*""")
     private val CODE_FENCE_REGEX = Regex("""```[^\n]*\n([\s\S]*?)```""")
     private const val CHECKBOX_PLACEHOLDER = '\u00A0'
-    private const val COPY_ICON_PLACEHOLDER = '\u00A0'
     private const val BG_COLOR = 0xFF111111.toInt()
+    // Approximates Claude's own message-input-panel surface — a warm dark gray, not pure black/gray.
+    private const val COPY_BLOCK_COLOR = 0xFF2B2A28.toInt()
 
     fun render(
         context: android.content.Context,
@@ -37,6 +38,7 @@ object MarkdownRenderer {
         chipTextSizePx: Float,
         checkboxSizePx: Float,
         cornerRadiusPx: Float,
+        codeBlockInsetPx: Float,
         onToggleCheckbox: (rawLineStart: Int) -> Unit,
         onCopyCodeBlock: (String) -> Unit = {}
     ): SpannableStringBuilder {
@@ -46,7 +48,7 @@ object MarkdownRenderer {
         for (m in CODE_FENCE_REGEX.findAll(raw)) {
             renderLines(raw.substring(lastEnd, m.range.first), lastEnd, inkColor, accentColor, chipTextSizePx, checkboxSizePx, out, onToggleCheckbox)
             if (out.isNotEmpty() && out.last() != '\n') out.append("\n")
-            renderCodeBlock(context, m.groupValues[1], inkColor, cornerRadiusPx, out, onCopyCodeBlock)
+            renderCodeBlock(context, m.groupValues[1], inkColor, cornerRadiusPx, codeBlockInsetPx, out, onCopyCodeBlock)
             lastEnd = m.range.last + 1
         }
         renderLines(raw.substring(lastEnd), lastEnd, inkColor, accentColor, chipTextSizePx, checkboxSizePx, out, onToggleCheckbox)
@@ -55,27 +57,35 @@ object MarkdownRenderer {
     }
 
     private fun renderCodeBlock(
-        context: android.content.Context, code: String, inkColor: Int, cornerRadiusPx: Float,
+        context: android.content.Context, code: String, inkColor: Int, cornerRadiusPx: Float, insetPx: Float,
         out: SpannableStringBuilder, onCopy: (String) -> Unit
     ) {
         val trimmed = code.removeSuffix("\n")
         val start = out.length
         out.append(trimmed)
-        out.append("  ")
-        val iconStart = out.length
-        out.append(COPY_ICON_PLACEHOLDER)
         val end = out.length
 
         if (end > start) {
-            val drawable = androidx.core.content.ContextCompat.getDrawable(context, R.drawable.ic_copy)?.mutate()
-            if (drawable != null) {
-                val size = (cornerRadiusPx * 3.2f).toInt().coerceAtLeast(1)
-                drawable.setBounds(0, 0, size, size)
-                drawable.setTint(inkColor)
-                out.setSpan(android.text.style.ImageSpan(drawable, android.text.style.ImageSpan.ALIGN_BASELINE), iconStart, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            val iconSizePx = (cornerRadiusPx * 2.6f).toInt().coerceAtLeast(1)
+            val copyIcon = androidx.core.content.ContextCompat.getDrawable(context, R.drawable.ic_copy)?.mutate()?.also {
+                it.setTint(inkColor)
+                it.alpha = 102 // ~40% opacity — "decolored" 60%
+                it.setBounds(0, 0, iconSizePx, iconSizePx)
             }
-            out.setSpan(TypefaceSpan("monospace"), start, iconStart, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            out.setSpan(CodeBlockSpan(0xFF1A1A1A.toInt(), start, end, cornerRadiusPx), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            out.setSpan(TypefaceSpan("monospace"), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            out.setSpan(
+                CodeBlockSpan(
+                    bgColor = COPY_BLOCK_COLOR,
+                    blockStart = start,
+                    blockEnd = end,
+                    cornerRadiusPx = cornerRadiusPx,
+                    horizontalInsetPx = insetPx,
+                    copyIcon = copyIcon,
+                    copyIconSizePx = iconSizePx,
+                    copyIconMarginPx = insetPx * 0.9f
+                ),
+                start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
             out.setSpan(object : ClickableSpan() {
                 override fun onClick(widget: View) = onCopy(trimmed)
                 override fun updateDrawState(ds: android.text.TextPaint) { ds.color = inkColor }

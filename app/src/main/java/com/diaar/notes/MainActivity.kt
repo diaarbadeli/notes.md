@@ -42,6 +42,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var previewScroll: android.widget.ScrollView
     private lateinit var toolbarRecycler: RecyclerView
     private lateinit var unsavedBanner: TextView
+    private lateinit var wordCountPill: TextView
     private lateinit var adapter: ToolbarAdapter
 
     private var suppressWatcher = false
@@ -94,6 +95,7 @@ class MainActivity : AppCompatActivity() {
         previewScroll = findViewById(R.id.previewScroll)
         toolbarRecycler = findViewById(R.id.toolbar)
         unsavedBanner = findViewById(R.id.unsavedBanner)
+        wordCountPill = findViewById(R.id.wordCountPill)
 
         currentTextSizeSp = prefs.textSizeSp
         applyTextSize()
@@ -145,6 +147,7 @@ class MainActivity : AppCompatActivity() {
         if (visible) {
             editor.visibility = View.VISIBLE
             previewScroll.visibility = View.GONE
+            wordCountPill.visibility = View.GONE
             val lp = toolbarRecycler.layoutParams as android.widget.FrameLayout.LayoutParams
             lp.bottomMargin = (12 * resources.displayMetrics.density).toInt()
             toolbarRecycler.layoutParams = lp
@@ -174,6 +177,7 @@ class MainActivity : AppCompatActivity() {
     private fun enterEditMode() {
         editor.visibility = View.VISIBLE
         previewScroll.visibility = View.GONE
+        wordCountPill.visibility = View.GONE
         editor.requestFocus()
         showKeyboardOn(editor)
     }
@@ -634,10 +638,19 @@ class MainActivity : AppCompatActivity() {
             chipTextSizePx = bodySize * 0.8f,
             checkboxSizePx = bodySize * 0.85f,
             cornerRadiusPx = cornerRadiusPx,
+            codeBlockInsetPx = 8 * resources.displayMetrics.density,
             onToggleCheckbox = { rawLineStart -> toggleCheckboxAndSave(rawLineStart) },
             onCopyCodeBlock = { code -> copyToClipboard(code) }
         )
         preview.movementMethod = LinkMovementMethod.getInstance()
+        updateWordCountPill()
+    }
+
+    private fun updateWordCountPill() {
+        val text = editor.text.toString()
+        val words = text.trim().split(Regex("\\s+")).count { it.isNotBlank() }
+        wordCountPill.text = if (words == 1) "1 word" else "$words words"
+        wordCountPill.visibility = View.VISIBLE
     }
 
     private fun copyToClipboard(text: String) {

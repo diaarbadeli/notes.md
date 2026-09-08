@@ -53,6 +53,22 @@
         android:visibility="gone"
         android:elevation="6dp" />
 
+    <TextView
+        android:id="@+id/wordCountPill"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="14dp"
+        android:background="@drawable/bg_menu_card"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:textColor="@color/ink_dim"
+        android:textSize="11sp"
+        android:visibility="gone"
+        android:elevation="4dp" />
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/toolbar"
         android:layout_width="wrap_content"
