@@ -14,14 +14,14 @@ import androidx.core.graphics.ColorUtils
  * the underlying raw text is never touched, so typing/cursor/undo behave normally.
  */
 class LiveMarkdownWatcher(
-    private val inkColor: Int,
-    private val accentColor: Int,
+    var inkColor: Int,
+    var accentColor: Int,
     var checkboxSizePx: Float,
     var chipTextSizePx: Float
 ) : TextWatcher {
 
-    private val dimMarkerColor = ColorUtils.setAlphaComponent(inkColor, 90)
-    private val dimCheckedColor = ColorUtils.setAlphaComponent(inkColor, 204) // ~80%
+    private val dimMarkerColor get() = ColorUtils.setAlphaComponent(inkColor, 90)
+    private val dimCheckedColor get() = ColorUtils.setAlphaComponent(inkColor, 204) // ~80%
     private val hrColor = 0xFF2A2A2A.toInt()
 
     override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}

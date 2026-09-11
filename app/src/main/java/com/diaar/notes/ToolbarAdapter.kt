@@ -39,6 +39,11 @@ class ToolbarAdapter(
 
     val items: MutableList<ToolbarButton> = initialOrder.toMutableList()
 
+    /** Icon tint — vector drawables are compiled with a fixed color, so runtime palette
+     * changes (the color-directive feature) re-tint them here instead. Set + call
+     * notifyDataSetChanged() to apply. */
+    var iconColor: Int? = null
+
     inner class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         val icon: ImageView = itemView.findViewById(R.id.icon)
     }
@@ -62,6 +67,7 @@ class ToolbarAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val button = items[position]
         holder.icon.setImageResource(button.iconRes)
+        iconColor?.let { holder.icon.setColorFilter(it) } ?: holder.icon.clearColorFilter()
 
         if (button.draggable) {
             holder.itemView.setOnTouchListener(null)

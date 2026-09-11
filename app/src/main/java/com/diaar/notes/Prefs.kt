@@ -43,6 +43,24 @@ class Prefs(context: Context) {
             value.joinToString("\n") { "${it.uri}|||${it.name}|||${if (it.pinned) "1" else "0"}" }
         ).apply()
 
+    // --- user-customizable palette (null = use the built-in default for that color) ---
+    var customBg: Int? by nullableIntPref(KEY_C_BG)
+    var customCopyBlocks: Int? by nullableIntPref(KEY_C_COPYBLOCKS)
+    var customAccent: Int? by nullableIntPref(KEY_C_ACCENT)
+    var customText: Int? by nullableIntPref(KEY_C_TEXT)
+
+    var hasShownWelcome: Boolean
+        get() = sp.getBoolean(KEY_WELCOME_SHOWN, false)
+        set(value) = sp.edit().putBoolean(KEY_WELCOME_SHOWN, value).apply()
+
+    private fun nullableIntPref(key: String) = object {
+        operator fun getValue(thisRef: Any?, property: Any?): Int? =
+            if (sp.contains(key)) sp.getInt(key, 0) else null
+        operator fun setValue(thisRef: Any?, property: Any?, value: Int?) {
+            if (value == null) sp.edit().remove(key).apply() else sp.edit().putInt(key, value).apply()
+        }
+    }
+
     companion object {
         private const val KEY_FOLDER = "target_folder_uri"
         private const val KEY_CURRENT_FILE = "current_file_uri"
@@ -50,6 +68,11 @@ class Prefs(context: Context) {
         private const val KEY_DATE_STYLE = "date_format_style"
         private const val KEY_TEXT_SIZE = "text_size_sp"
         private const val KEY_RECENTS = "recent_notes"
+        private const val KEY_C_BG = "custom_bg"
+        private const val KEY_C_COPYBLOCKS = "custom_copyblocks"
+        private const val KEY_C_ACCENT = "custom_accent"
+        private const val KEY_C_TEXT = "custom_text"
+        private const val KEY_WELCOME_SHOWN = "welcome_shown"
     }
 }
 

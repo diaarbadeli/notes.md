@@ -23,6 +23,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.graphics.ColorUtils
 import androidx.documentfile.provider.DocumentFile
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -32,6 +33,11 @@ import java.util.Locale
 import kotlin.math.abs
 
 private enum class PendingFolderAction { NONE, SET_ONLY, CREATE_NEW_AFTER }
+
+private const val DEFAULT_BG = 0xFF111111.toInt()
+private const val DEFAULT_INK = 0xFFDFCBC9.toInt()
+private const val DEFAULT_ACCENT = 0xFF072331.toInt()
+private const val DEFAULT_COPYBLOCKS = 0xFF2B2A28.toInt()
 
 class MainActivity : AppCompatActivity() {
 
@@ -52,8 +58,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var liveWatcher: LiveMarkdownWatcher
     private lateinit var scaleDetector: ScaleGestureDetector
 
-    private val ink = 0xFFDFCBC9.toInt()
-    private val accent = 0xFF072331.toInt()
+    private var ink = DEFAULT_INK
+    private var accent = DEFAULT_ACCENT
+    private var bgColor = DEFAULT_BG
+    private var copyBlockColor = DEFAULT_COPYBLOCKS
 
     private val autosaveHandler = Handler(Looper.getMainLooper())
     private val autosaveRunnable = Runnable { writeCurrentFile() }
@@ -100,11 +108,13 @@ class MainActivity : AppCompatActivity() {
         currentTextSizeSp = prefs.textSizeSp
         applyTextSize()
         applyTypography()
+        loadColors()
 
         setupToolbar()
         setupEditor()
         setupGestures()
         setupKeyboardVisibilityTracking()
+        applyRuntimeColors()
 
         preview.setOnClickListener { enterEditMode() }
 
@@ -426,6 +436,57 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ---------------------------------------------------------------- color customization
+
+    private fun loadColors() {
+        bgColor = prefs.customBg ?: DEFAULT_BG
+        ink = prefs.customText ?: DEFAULT_INK
+        accent = prefs.customAccent ?: DEFAULT_ACCENT
+        copyBlockColor = prefs.customCopyBlocks ?: DEFAULT_COPYBLOCKS
+    }
+
+    /** Pushes the current bg/ink/accent/copyBlock colors onto everything that can't just
+     * read them at render time (vector icons and XML-compiled colors are fixed at compile
+     * time, so those need an explicit runtime override; span-based text rendering already
+     * reads ink/accent live, no extra work needed there). */
+    private fun applyRuntimeColors() {
+        root.setBackgroundColor(bgColor)
+        window.statusBarColor = bgColor
+        window.navigationBarColor = bgColor
+        editor.setTextColor(ink)
+        editor.setHintTextColor(ColorUtils.setAlphaComponent(ink, 140))
+        preview.setTextColor(ink)
+
+        toolbarRecycler.background?.mutate()?.let {
+            androidx.core.graphics.drawable.DrawableCompat.setTint(it, accent)
+        }
+
+        if (::adapter.isInitialized) {
+            adapter.iconColor = ink
+            adapter.notifyDataSetChanged()
+        }
+        if (::liveWatcher.isInitialized) {
+            liveWatcher.inkColor = ink
+            liveWatcher.accentColor = accent
+            liveWatcher.afterTextChanged(editor.text)
+        }
+        if (!keyboardVisible) renderPreview()
+    }
+
+    /** Checks whether [content] in a file named [fileName] is a valid color directive
+     * (see ColorDirectives) and, if so, applies + persists the new palette immediately. */
+    private fun checkAndApplyColorDirectives(fileName: String, content: String) {
+        if (!ColorDirectives.isMonitoredFileName(fileName)) return
+        val parsed = ColorDirectives.parse(content) ?: return
+        prefs.customBg = parsed.background
+        prefs.customCopyBlocks = parsed.copyBlocks
+        prefs.customAccent = parsed.accent
+        prefs.customText = parsed.text
+        loadColors()
+        applyRuntimeColors()
+        Toast.makeText(this, "Colors updated", Toast.LENGTH_SHORT).show()
+    }
+
     private fun setupGestures() {
         scaleDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
@@ -581,9 +642,12 @@ class MainActivity : AppCompatActivity() {
     private fun writeCurrentFile() {
         val uri = prefs.currentFileUri ?: return
         try {
+            val text = editor.text.toString()
             contentResolver.openOutputStream(uri, "wt")?.use {
-                it.write(editor.text.toString().toByteArray(Charsets.UTF_8))
+                it.write(text.toByteArray(Charsets.UTF_8))
             }
+            val name = try { DocumentFile.fromSingleUri(this, uri)?.name ?: "" } catch (_: Exception) { "" }
+            checkAndApplyColorDirectives(name, text)
         } catch (_: Exception) {
             Toast.makeText(this, "Couldn't save — check the file is still accessible", Toast.LENGTH_SHORT).show()
         }
@@ -603,6 +667,7 @@ class MainActivity : AppCompatActivity() {
         val name = try { DocumentFile.fromSingleUri(this, uri)?.name ?: "untitled.md" } catch (_: Exception) { "untitled.md" }
         addToRecents(uri, name)
         updateUnsavedBanner()
+        checkAndApplyColorDirectives(name, text)
         if (!keyboardVisible) renderPreview()
     }
 
@@ -632,8 +697,10 @@ class MainActivity : AppCompatActivity() {
         preview.text = MarkdownRenderer.render(
             context = this,
             raw = editor.text.toString(),
+            bgColor = bgColor,
             inkColor = ink,
             accentColor = accent,
+            copyBlockColor = copyBlockColor,
             bodyTextSizePx = bodySize,
             chipTextSizePx = bodySize * 0.8f,
             checkboxSizePx = bodySize * 0.85f,

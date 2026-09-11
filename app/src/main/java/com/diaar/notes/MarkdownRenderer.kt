@@ -25,15 +25,14 @@ object MarkdownRenderer {
     val TAG_REGEX = Regex("""(?<![\w#])#\w[\w-]*""")
     private val CODE_FENCE_REGEX = Regex("""```[^\n]*\n([\s\S]*?)```""")
     private const val CHECKBOX_PLACEHOLDER = '\u00A0'
-    private const val BG_COLOR = 0xFF111111.toInt()
-    // Approximates Claude's own message-input-panel surface — a warm dark gray, not pure black/gray.
-    private const val COPY_BLOCK_COLOR = 0xFF2B2A28.toInt()
 
     fun render(
         context: android.content.Context,
         raw: String,
+        bgColor: Int,
         inkColor: Int,
         accentColor: Int,
+        copyBlockColor: Int,
         bodyTextSizePx: Float,
         chipTextSizePx: Float,
         checkboxSizePx: Float,
@@ -46,18 +45,18 @@ object MarkdownRenderer {
         var lastEnd = 0
 
         for (m in CODE_FENCE_REGEX.findAll(raw)) {
-            renderLines(raw.substring(lastEnd, m.range.first), lastEnd, inkColor, accentColor, chipTextSizePx, checkboxSizePx, out, onToggleCheckbox)
+            renderLines(raw.substring(lastEnd, m.range.first), lastEnd, bgColor, inkColor, accentColor, chipTextSizePx, checkboxSizePx, out, onToggleCheckbox)
             if (out.isNotEmpty() && out.last() != '\n') out.append("\n")
-            renderCodeBlock(context, m.groupValues[1], inkColor, cornerRadiusPx, codeBlockInsetPx, out, onCopyCodeBlock)
+            renderCodeBlock(context, m.groupValues[1], inkColor, copyBlockColor, cornerRadiusPx, codeBlockInsetPx, out, onCopyCodeBlock)
             lastEnd = m.range.last + 1
         }
-        renderLines(raw.substring(lastEnd), lastEnd, inkColor, accentColor, chipTextSizePx, checkboxSizePx, out, onToggleCheckbox)
+        renderLines(raw.substring(lastEnd), lastEnd, bgColor, inkColor, accentColor, chipTextSizePx, checkboxSizePx, out, onToggleCheckbox)
 
         return out
     }
 
     private fun renderCodeBlock(
-        context: android.content.Context, code: String, inkColor: Int, cornerRadiusPx: Float, insetPx: Float,
+        context: android.content.Context, code: String, inkColor: Int, copyBlockColor: Int, cornerRadiusPx: Float, insetPx: Float,
         out: SpannableStringBuilder, onCopy: (String) -> Unit
     ) {
         val trimmed = code.removeSuffix("\n")
@@ -75,7 +74,7 @@ object MarkdownRenderer {
             out.setSpan(TypefaceSpan("monospace"), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             out.setSpan(
                 CodeBlockSpan(
-                    bgColor = COPY_BLOCK_COLOR,
+                    bgColor = copyBlockColor,
                     blockStart = start,
                     blockEnd = end,
                     cornerRadiusPx = cornerRadiusPx,
@@ -95,7 +94,7 @@ object MarkdownRenderer {
     }
 
     private fun renderLines(
-        raw: String, baseOffset: Int, inkColor: Int, accentColor: Int, chipTextSizePx: Float, checkboxSizePx: Float,
+        raw: String, baseOffset: Int, bgColor: Int, inkColor: Int, accentColor: Int, chipTextSizePx: Float, checkboxSizePx: Float,
         out: SpannableStringBuilder, onToggleCheckbox: (Int) -> Unit
     ) {
         var rawIndex = 0
@@ -108,7 +107,7 @@ object MarkdownRenderer {
                 HR_LINE.matches(line.trim()) -> {
                     val start = out.length
                     out.append(line)
-                    out.setSpan(ForegroundColorSpan(BG_COLOR), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    out.setSpan(ForegroundColorSpan(bgColor), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     out.setSpan(HrSpan(0xFF2A2A2A.toInt()), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
 
