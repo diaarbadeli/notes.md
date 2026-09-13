@@ -44,6 +44,7 @@ jobs:
 
       - name: Publish build log (always, for diagnostics)
         if: always()
+        continue-on-error: true
         run: |
           git config user.email "ci@local"
           git config user.name "ci-bot"
