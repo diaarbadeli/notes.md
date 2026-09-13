@@ -39,6 +39,27 @@ private const val DEFAULT_INK = 0xFFDFCBC9.toInt()
 private const val DEFAULT_ACCENT = 0xFF072331.toInt()
 private const val DEFAULT_COPYBLOCKS = 0xFF2B2A28.toInt()
 
+private const val WELCOME_TEXT = """**Welcome**
+
+This is a simple app built to replace the constant need to open Obsidian for every quick task. Obsidian is too powerful to fully replace, but since it can take a few seconds to load, this app is here for your daily needs — grocery lists, to-dos, quick notes, and the ideas that slip away if you don't catch them in time.
+
+Your main control panel is the **toolbar** above the keyboard. Hold any icon to rearrange it — except the three with their own hold action: **New** (hold to rename the current note, swipe up to change its target folder), **Load** (tap for your recents list, hold to open the system file browser), and **Date** (hold to change the timestamp format).
+
+There are also a few **gestures**:
+- Pull down or pull up to switch between read and write mode. No keyboard means read mode.
+- Pinch to resize the text.
+- Swipe left-to-right in read mode for a quick word and character count; a small word-count pill also stays visible whenever you're reading.
+
+You can **customize colors** right in this file — just edit the four lines below and save. You can delete this file afterward. To change colors again later, create a new note named **change4colors** with the same four lines; you can delete that one too once it's taken effect.
+
+background #111111
+copyblocks #1e1e1c
+accent #072331
+text #dfcbc9
+
+I hope you have a nice ride.
+#Diaar"""
+
 class MainActivity : AppCompatActivity() {
 
     private lateinit var prefs: Prefs
@@ -118,8 +139,13 @@ class MainActivity : AppCompatActivity() {
 
         preview.setOnClickListener { enterEditMode() }
 
-        prefs.currentFileUri?.let { uri ->
-            try { openFileIntoEditor(uri) } catch (_: Exception) { prefs.currentFileUri = null }
+        val fileToRestore = prefs.currentFileUri
+        if (fileToRestore != null) {
+            openFileIntoEditor(fileToRestore)
+        } else if (!prefs.hasShownWelcome) {
+            editor.setText(WELCOME_TEXT)
+            lastSnapshot = WELCOME_TEXT
+            prefs.hasShownWelcome = true
         }
         updateUnsavedBanner()
         renderPreview()
@@ -656,19 +682,33 @@ class MainActivity : AppCompatActivity() {
     // ---------------------------------------------------------------- open / create
 
     private fun openFileIntoEditor(uri: Uri) {
-        val text = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
-        suppressWatcher = true
-        editor.setText(text)
-        editor.setSelection(text.length)
-        suppressWatcher = false
-        lastSnapshot = text
-        undoStack.clear()
-        prefs.currentFileUri = uri
-        val name = try { DocumentFile.fromSingleUri(this, uri)?.name ?: "untitled.md" } catch (_: Exception) { "untitled.md" }
-        addToRecents(uri, name)
-        updateUnsavedBanner()
-        checkAndApplyColorDirectives(name, text)
-        if (!keyboardVisible) renderPreview()
+        Thread {
+            var failed = false
+            val text = try {
+                contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                    ?: run { failed = true; "" }
+            } catch (_: Exception) { failed = true; "" }
+            val name = try { DocumentFile.fromSingleUri(this, uri)?.name ?: "untitled.md" } catch (_: Exception) { "untitled.md" }
+
+            runOnUiThread {
+                if (failed) {
+                    prefs.currentFileUri = null
+                    updateUnsavedBanner()
+                    return@runOnUiThread
+                }
+                suppressWatcher = true
+                editor.setText(text)
+                editor.setSelection(text.length)
+                suppressWatcher = false
+                lastSnapshot = text
+                undoStack.clear()
+                prefs.currentFileUri = uri
+                addToRecents(uri, name)
+                updateUnsavedBanner()
+                checkAndApplyColorDirectives(name, text)
+                if (!keyboardVisible) renderPreview()
+            }
+        }.start()
     }
 
     private fun createNewNote(name: String) {

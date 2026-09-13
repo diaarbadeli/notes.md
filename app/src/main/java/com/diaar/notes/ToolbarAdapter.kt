@@ -146,7 +146,6 @@ class ToolbarAdapter(
             val from = viewHolder.bindingAdapterPosition
             val to = target.bindingAdapterPosition
             if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false
-            if (!items[to].draggable) return false
             val moved = items.removeAt(from)
             items.add(to, moved)
             notifyItemMoved(from, to)

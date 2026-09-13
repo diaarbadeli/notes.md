@@ -251,3 +251,58 @@ request, and consistent with using the system font (e.g. Recursive) throughout.
 - **One filename prompt, no folder browser for "New"**: New always creates inside the
   single saved target folder (that's the point — no per-note folder picking). Only
   long-press changes that target.
+
+## 9. Version 3 changelog (bug fixes, color customization, welcome note, launch speed)
+
+**Bug fixes**
+- Rename now reaches the file through its granted folder tree first (more reliable than
+  a bare single-document reference), with a clear explanation if a file genuinely can't
+  be renamed (files opened from outside the target folder via the system browser
+  sometimes can't be, by Android's own permission model — not something to code around).
+- Cursor and text-selection handles are visible again — they weren't missing, just
+  tinted the same near-black as the background.
+- Toolbar drag-to-reorder no longer gets "stuck": a draggable icon could never move
+  *past* New/Load/Date once adjacent to one, because the reorder logic blocked landing
+  on a non-draggable slot at all. Only *dragging* those three should be blocked (they
+  have their own hold action) — passing other icons through their slot is normal
+  reordering and is allowed now.
+- File reads (opening a note, including restoring the last-open one at launch) moved
+  off the main thread. This was likely the biggest single cause of a slow-feeling
+  launch — SAF I/O was blocking the very first frame.
+- Bullet `•` recolored (was accent, now dimmed ink) and no longer swallows extra spaces
+  you type after it. Checkboxes render a consistent two-space gap in read mode
+  regardless of the raw file's actual spacing. `#tags` hide their `#` in read mode only
+  (edit mode still shows raw syntax).
+- Code blocks: copy icon moved to the actual top-right corner (drawn by the block's own
+  background renderer, not inline text), decolored to ~40% opacity, side margins added,
+  background color changed to a warm dark gray approximating Claude's own input panel
+  (best-effort visual match, not pixel-verified).
+- Load's tap/hold swapped: tap opens the curated recents list, hold opens the system
+  file browser. Pull-up now mirrors pull-down for the read/write toggle (fires from
+  whichever scroll edge — top or bottom — is relevant to the current mode).
+- Added a persistent word-count pill, bottom-right, visible only in read mode
+  (word-count only) — additive to the existing swipe-right word+character toast, not a
+  replacement.
+
+**Color customization**
+A note named **welcome** or **change4colors** containing all four labels —
+`background`, `copyblocks`, `accent`, `text` — each followed by a hex code (any order,
+case-insensitive, tolerates a stray extra `#`) gets detected on save or open and
+re-themes the whole app immediately: background, text, accent (toolbar pill, checkboxes,
+chips, icons), and code-block background. The choice persists in `SharedPreferences`
+even after the note is deleted; making a new note with the same name and format updates
+it again. Secondary chrome (popup menu cards, the unsaved banner, the word-count pill)
+intentionally stays a fixed neutral dark — it's not part of the 4-color spec, so it was
+left alone rather than guessing how to fold it in.
+
+**Welcome note**
+On first launch only (nothing to restore, never shown before), the editor buffer is
+pre-filled with an in-app welcome/help note — unsaved, so the existing "Not saved" banner
+naturally applies. It explains the toolbar's hold actions, the gestures, and includes the
+literal color-directive block so a person can edit-and-save it immediately to try color
+customization, or delete it without ever saving.
+
+**Known trade-off, stated plainly**
+`ic_copy`'s "Claude input panel" color and the general premium-polish suggestions from
+earlier are approximations made without live access to inspect exact current design
+tokens — flag it if it looks off and it can be adjusted.
