@@ -54,7 +54,7 @@ class CheckboxSpan(
         } else {
             fillPaint.style = Paint.Style.STROKE
             fillPaint.strokeWidth = sizePx * 0.1f
-            fillPaint.color = accentColor
+            fillPaint.color = ColorUtils.setAlphaComponent(inkColor, 204) // same dimmed tone as the bullet dot
             canvas.drawRoundRect(rect, corner, corner, fillPaint)
         }
     }

@@ -4,6 +4,7 @@ import android.graphics.Typeface
 import android.text.Editable
 import android.text.Spanned
 import android.text.TextWatcher
+import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
 import androidx.core.graphics.ColorUtils
@@ -35,9 +36,9 @@ class LiveMarkdownWatcher(
     private fun clearOurSpans(s: Editable) {
         s.getSpans(0, s.length, StyleSpan::class.java).forEach { s.removeSpan(it) }
         s.getSpans(0, s.length, ForegroundColorSpan::class.java).forEach { s.removeSpan(it) }
+        s.getSpans(0, s.length, BackgroundColorSpan::class.java).forEach { s.removeSpan(it) }
         s.getSpans(0, s.length, CheckboxSpan::class.java).forEach { s.removeSpan(it) }
         s.getSpans(0, s.length, BulletGlyphSpan::class.java).forEach { s.removeSpan(it) }
-        s.getSpans(0, s.length, ChipSpan::class.java).forEach { s.removeSpan(it) }
         s.getSpans(0, s.length, HrSpan::class.java).forEach { s.removeSpan(it) }
     }
 
@@ -112,10 +113,16 @@ class LiveMarkdownWatcher(
         }
 
         for (range in TimestampFormat.findTimestampRanges(segment)) {
-            s.setSpan(ChipSpan(accentColor, inkColor, chipTextSizePx), start + range.first, start + range.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            val a = start + range.first
+            val b = start + range.last + 1
+            s.setSpan(BackgroundColorSpan(accentColor), a, b, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            s.setSpan(ForegroundColorSpan(inkColor), a, b, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
         for (m in MarkdownRenderer.TAG_REGEX.findAll(segment)) {
-            s.setSpan(ChipSpan(accentColor, inkColor, chipTextSizePx), start + m.range.first, start + m.range.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            val a = start + m.range.first
+            val b = start + m.range.last + 1
+            s.setSpan(BackgroundColorSpan(accentColor), a, b, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            s.setSpan(ForegroundColorSpan(inkColor), a, b, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
     }
 }

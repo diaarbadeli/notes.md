@@ -43,7 +43,7 @@ private const val WELCOME_TEXT = """**Welcome**
 
 This is a simple app built to replace the constant need to open Obsidian for every quick task. Obsidian is too powerful to fully replace, but since it can take a few seconds to load, this app is here for your daily needs — grocery lists, to-dos, quick notes, and the ideas that slip away if you don't catch them in time.
 
-Your main control panel is the **toolbar** above the keyboard. Hold any icon to rearrange it — except the three with their own hold action: **New** (hold to rename the current note, swipe up to change its target folder), **Load** (tap for your recents list, hold to open the system file browser), and **Date** (hold to change the timestamp format).
+Your main control panel is the **toolbar** above the keyboard. Hold any icon to rearrange it — except the four with their own hold action: **Undo** (hold to redo), **New** (hold to rename the current note, swipe up to change its target folder), **Load** (tap for your recents list, hold to open the system file browser), and **Date** (hold to change the timestamp format).
 
 There are also a few **gestures**:
 - Pull down or pull up to switch between read and write mode. No keyboard means read mode.
@@ -88,6 +88,7 @@ class MainActivity : AppCompatActivity() {
     private val autosaveRunnable = Runnable { writeCurrentFile() }
 
     private val undoStack = ArrayDeque<String>()
+    private val redoStack = ArrayDeque<String>()
     private var lastUndoPushAt = 0L
     private var lastSnapshot = ""
 
@@ -97,9 +98,31 @@ class MainActivity : AppCompatActivity() {
                 uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             )
             prefs.targetFolderUri = uri
+            persistWelcomeFileIfNeeded(uri)
             if (pendingFolderAction == PendingFolderAction.CREATE_NEW_AFTER) createNewNote(defaultNoteName())
         }
         pendingFolderAction = PendingFolderAction.NONE
+    }
+
+    /** Quietly writes welcome.md into the newly chosen folder if the welcome note was shown
+     * but never saved — otherwise its color-customization instructions would be lost the
+     * moment the user creates or loads something else without saving it themselves first.
+     * Never touches whatever the user currently has open. */
+    private fun persistWelcomeFileIfNeeded(folderUri: Uri) {
+        if (!prefs.hasShownWelcome || prefs.welcomeSavedToFile) return
+        Thread {
+            try {
+                val dir = DocumentFile.fromTreeUri(this, folderUri)
+                val existing = dir?.findFile("welcome.md")
+                val file = existing ?: dir?.createFile("text/markdown", "welcome.md")
+                file?.uri?.let { fileUri ->
+                    contentResolver.openOutputStream(fileUri, "wt")?.use {
+                        it.write(WELCOME_TEXT.toByteArray(Charsets.UTF_8))
+                    }
+                }
+                prefs.welcomeSavedToFile = true
+            } catch (_: Exception) { /* best-effort — the buffer copy still exists this session */ }
+        }.start()
     }
 
     private val openDocumentLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -147,6 +170,7 @@ class MainActivity : AppCompatActivity() {
             lastSnapshot = WELCOME_TEXT
             prefs.hasShownWelcome = true
         }
+        prefs.targetFolderUri?.let { persistWelcomeFileIfNeeded(it) }
         updateUnsavedBanner()
         renderPreview()
         editor.visibility = View.GONE
@@ -283,6 +307,7 @@ class MainActivity : AppCompatActivity() {
     // Date: long-press and swipe-up both open the format menu (redundant on purpose).
     private fun onToolbarLongPress(button: ToolbarButton, anchor: View) {
         when (button) {
+            ToolbarButton.UNDO -> doRedo()
             ToolbarButton.NEW -> showRenamePopup(anchor)
             ToolbarButton.LOAD -> openDocumentLauncher.launch(arrayOf("text/markdown", "text/plain", "text/*"))
             ToolbarButton.DATETIME -> showDateFormatPopup(anchor)
@@ -600,17 +625,33 @@ class MainActivity : AppCompatActivity() {
             if (undoStack.size > 100) undoStack.removeFirst()
             lastUndoPushAt = now
         }
+        redoStack.clear()
         lastSnapshot = editor.text.toString()
     }
 
     private fun doUndo() {
         if (undoStack.isEmpty()) return
+        val cursorBefore = editor.selectionStart.coerceAtLeast(0)
+        redoStack.addLast(lastSnapshot)
         val previous = undoStack.removeLast()
         suppressWatcher = true
         editor.setText(previous)
-        editor.setSelection(previous.length.coerceIn(0, previous.length))
+        editor.setSelection(cursorBefore.coerceIn(0, previous.length))
         suppressWatcher = false
         lastSnapshot = previous
+        scheduleAutosave()
+    }
+
+    private fun doRedo() {
+        if (redoStack.isEmpty()) return
+        val cursorBefore = editor.selectionStart.coerceAtLeast(0)
+        undoStack.addLast(lastSnapshot)
+        val next = redoStack.removeLast()
+        suppressWatcher = true
+        editor.setText(next)
+        editor.setSelection(cursorBefore.coerceIn(0, next.length))
+        suppressWatcher = false
+        lastSnapshot = next
         scheduleAutosave()
     }
 
@@ -652,12 +693,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun defaultNoteName(): String {
-        val now = Date()
-        val day = SimpleDateFormat("dd", Locale.ENGLISH).format(now)
-        val month = SimpleDateFormat("MMM", Locale.ENGLISH).format(now).lowercase(Locale.ENGLISH)
-        val year = SimpleDateFormat("yyyy", Locale.ENGLISH).format(now)
-        val time = SimpleDateFormat("HHmm", Locale.ENGLISH).format(now)
-        return "$day-$month-$year-$time"
+        return SimpleDateFormat("yyyy-MM-dd-HHmm", Locale.ENGLISH).format(Date())
     }
 
     private fun scheduleAutosave() {
@@ -701,7 +737,7 @@ class MainActivity : AppCompatActivity() {
                 editor.setSelection(text.length)
                 suppressWatcher = false
                 lastSnapshot = text
-                undoStack.clear()
+                undoStack.clear(); redoStack.clear()
                 prefs.currentFileUri = uri
                 addToRecents(uri, name)
                 updateUnsavedBanner()
@@ -721,7 +757,7 @@ class MainActivity : AppCompatActivity() {
         editor.setText("")
         suppressWatcher = false
         lastSnapshot = ""
-        undoStack.clear()
+        undoStack.clear(); redoStack.clear()
         prefs.currentFileUri = newFile.uri
         addToRecents(newFile.uri, finalName)
         updateUnsavedBanner()

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- A single centered dot, diameter ~1/5 of the icon's height -->
     <path
-        android:pathData="M54,54 L54,30 M54,54 L70,54 M54,54 L54,78 M54,54 L38,54 M54,54 L66,42 M54,54 L42,66 M54,54 L66,66 M54,54 L42,42"
-        android:strokeColor="#DFCBC9" android:strokeWidth="4" android:strokeLineCap="round" android:fillColor="#00000000" />
+        android:fillColor="#DFCBC9"
+        android:pathData="M54,54 m-10.8,0 a10.8,10.8 0 1,0 21.6,0 a10.8,10.8 0 1,0 -21.6,0" />
 </vector>

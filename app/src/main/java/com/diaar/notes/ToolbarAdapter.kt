@@ -13,7 +13,7 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 enum class ToolbarButton(val iconRes: Int, val draggable: Boolean = true) {
-    UNDO(R.drawable.ic_undo),
+    UNDO(R.drawable.ic_undo, draggable = false),
     NEW(R.drawable.ic_new, draggable = false),
     LOAD(R.drawable.ic_send, draggable = false),
     CHECKBOX(R.drawable.ic_checkbox),

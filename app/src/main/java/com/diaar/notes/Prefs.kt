@@ -53,6 +53,10 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_WELCOME_SHOWN, false)
         set(value) = sp.edit().putBoolean(KEY_WELCOME_SHOWN, value).apply()
 
+    var welcomeSavedToFile: Boolean
+        get() = sp.getBoolean(KEY_WELCOME_SAVED, false)
+        set(value) = sp.edit().putBoolean(KEY_WELCOME_SAVED, value).apply()
+
     private fun nullableIntPref(key: String) = object {
         operator fun getValue(thisRef: Any?, property: Any?): Int? =
             if (sp.contains(key)) sp.getInt(key, 0) else null
@@ -73,6 +77,7 @@ class Prefs(context: Context) {
         private const val KEY_C_ACCENT = "custom_accent"
         private const val KEY_C_TEXT = "custom_text"
         private const val KEY_WELCOME_SHOWN = "welcome_shown"
+        private const val KEY_WELCOME_SAVED = "welcome_saved"
     }
 }
 
