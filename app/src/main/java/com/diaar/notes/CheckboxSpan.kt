@@ -31,7 +31,13 @@ class CheckboxSpan(
 
     override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
         val boxTop = y + paint.fontMetrics.ascent + (paint.fontMetrics.descent - paint.fontMetrics.ascent - sizePx) / 2f
-        val rect = RectF(x, boxTop, x + sizePx, boxTop + sizePx)
+        // Center within the allotted (wider) box rather than flush-left: the old flush-left
+        // draw put all the padding on one side, which looked fine for LTR text (gap faces the
+        // following text) but squished the glyph against RTL text (gap ended up on the wrong
+        // side). Centering keeps an even gap on both sides regardless of paragraph direction.
+        val totalWidth = sizePx * 1.4f
+        val boxLeft = x + (totalWidth - sizePx) / 2f
+        val rect = RectF(boxLeft, boxTop, boxLeft + sizePx, boxTop + sizePx)
         val corner = sizePx * 0.28f
 
         val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
