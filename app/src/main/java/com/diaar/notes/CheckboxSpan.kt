@@ -26,7 +26,7 @@ class CheckboxSpan(
             fm.top = pfm.top
             fm.bottom = pfm.bottom
         }
-        return (sizePx * 1.4f).toInt()
+        return (sizePx * 1.6f).toInt() // wider than the drawn glyph on purpose — this is the tappable hit area
     }
 
     override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
@@ -35,7 +35,7 @@ class CheckboxSpan(
         // draw put all the padding on one side, which looked fine for LTR text (gap faces the
         // following text) but squished the glyph against RTL text (gap ended up on the wrong
         // side). Centering keeps an even gap on both sides regardless of paragraph direction.
-        val totalWidth = sizePx * 1.4f
+        val totalWidth = sizePx * 1.6f
         val boxLeft = x + (totalWidth - sizePx) / 2f
         val rect = RectF(boxLeft, boxTop, boxLeft + sizePx, boxTop + sizePx)
         val corner = sizePx * 0.28f

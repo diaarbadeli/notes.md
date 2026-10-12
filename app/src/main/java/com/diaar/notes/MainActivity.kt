@@ -679,10 +679,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun insertCodeBlock() {
-        val cursor = editor.selectionStart.coerceAtLeast(0)
-        val insert = "```\n\n```"
-        editor.text.insert(cursor, insert)
-        editor.setSelection(cursor + 4) // land inside the fences, on the blank line
+        val start = editor.selectionStart.coerceAtLeast(0)
+        val end = editor.selectionEnd.coerceAtLeast(0)
+        val text = editor.text
+        if (start != end) {
+            val lo = minOf(start, end)
+            val hi = maxOf(start, end)
+            val selected = text.subSequence(lo, hi)
+            val wrapped = "```\n$selected\n```"
+            text.replace(lo, hi, wrapped)
+            editor.setSelection(lo + wrapped.length)
+        } else {
+            val insert = "```\n\n```"
+            text.insert(start, insert)
+            editor.setSelection(start + 4) // land inside the fences, on the blank line
+        }
     }
 
     private fun insertTimestamp() = insertAtCursor(TimestampFormat.format(prefs.dateFormatStyle))
